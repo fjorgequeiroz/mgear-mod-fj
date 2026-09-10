@@ -45,6 +45,16 @@ class Ui_Form(object):
         self.formLayout.setWidget(
             1, QtWidgets.QFormLayout.FieldRole, self.jntNb_spinBox)
 
+        self.tweakControls_label = QtWidgets.QLabel(self.groupBox)
+        self.tweakControls_label.setObjectName("tweakControls_label")
+        self.formLayout.setWidget(
+            2, QtWidgets.QFormLayout.LabelRole, self.tweakControls_label)
+        self.tweakControls_checkBox = QtWidgets.QCheckBox(self.groupBox)
+        self.tweakControls_checkBox.setText("")
+        self.tweakControls_checkBox.setObjectName("tweakControls_checkBox")
+        self.formLayout.setWidget(
+            2, QtWidgets.QFormLayout.FieldRole, self.tweakControls_checkBox)
+
         self.gridLayout_2.addLayout(self.formLayout, 0, 0, 1, 1)
         self.gridLayout.addWidget(self.groupBox, 0, 0, 1, 1)
 
@@ -106,6 +116,8 @@ class Ui_Form(object):
             gqt.fakeTranslate("Form", "FK Controllers", None, -1))
         self.jntNb_label.setText(
             gqt.fakeTranslate("Form", "Deform Joints", None, -1))
+        self.tweakControls_label.setText(
+            gqt.fakeTranslate("Form", "Tweak Controls", None, -1))
         self.ikRefArray_groupBox.setTitle(
             gqt.fakeTranslate("Form", "Base Reference Array", None, -1))
         self.ikRefArrayAdd_pushButton.setText(

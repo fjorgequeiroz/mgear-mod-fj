@@ -67,6 +67,10 @@ class Guide(guide.ComponentGuide):
         self.pFkNb = self.addParam("fkNb", "long", 3, 2)
         self.pJntNb = self.addParam("jntNb", "long", 10, 2)
 
+        # Options
+        self.pTweakControls = self.addParam(
+            "tweakControls", "bool", False)
+
         # Ref array
         self.pIkRefArray = self.addParam("ikrefarray", "string", "")
 
@@ -129,6 +133,9 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.settingsTab.jntNb_spinBox.setValue(
             self.root.attr("jntNb").get())
 
+        self.populateCheck(self.settingsTab.tweakControls_checkBox,
+                           "tweakControls")
+
         ikRefArrayItems = self.root.attr("ikrefarray").get().split(",")
         for item in ikRefArrayItems:
             self.settingsTab.ikRefArray_listWidget.addItem(item)
@@ -149,6 +156,11 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
             partial(self.updateSpinBox,
                     self.settingsTab.jntNb_spinBox,
                     "jntNb"))
+
+        self.settingsTab.tweakControls_checkBox.stateChanged.connect(
+            partial(self.updateCheck,
+                    self.settingsTab.tweakControls_checkBox,
+                    "tweakControls"))
 
         self.settingsTab.ikRefArrayAdd_pushButton.clicked.connect(
             partial(self.addItem2listWidget,
