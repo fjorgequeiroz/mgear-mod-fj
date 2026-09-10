@@ -5,9 +5,9 @@ method, with the follicles swapped for a single ``uvPin`` node.
 
 Pipeline
 --------
-1. A NURBS surface is lofted from two rail curves offset across the width
-   through the FK positions, then rebuilt to degree 3 along the length (U),
-   degree 1 across the width (V), one U span per FK segment, 0-1 range.
+1. A NURBS plane is laid along the guide (U along the length, V across the
+   width), one U span per FK segment, then rebuilt to degree 3 in U /
+   degree 1 in V, 0-1 parameter range.
 2. The surface is skinned to a chain of **bind joints**, one per FK
    controller. Each FK controller drives its bind joint; a middle
    controller auto-follows its neighbours (``Mid Follow`` attribute).
@@ -139,44 +139,34 @@ class Component(component.Main):
                 parent = fk_ctl
 
         # Ribbon surface --------------------------------
-        # Built by lofting two curves offset across the width, so the U
-        # parameter is guaranteed to run along the length of the chain and
-        # V across the width (no reliance on nurbsPlane's axis convention).
+        # ribbon_root is oriented so its local +X runs down the chain and its
+        # +Y is the surface normal. The nurbsPlane is created in its local
+        # X-Z plane (U along +X = length, V along +Z = width) and parented
+        # in, so it lines up with the guide whatever direction that points.
+        srf_t = transform.getTransformLookingAt(
+            self.fk_pos[0], self.fk_pos[-1], self.normal, "xy", self.negate
+        )
+        srf_t = transform.setMatrixPosition(
+            srf_t,
+            vector.linearlyInterpolate(self.fk_pos[0], self.fk_pos[-1], 0.5),
+        )
         self.ribbon_root = primitive.addTransform(
-            self.root,
-            self.getName("ribbon_root"),
-            transform.getTransform(self.root),
+            self.root, self.getName("ribbon_root"), srf_t
         )
 
-        half_w = self.size * 0.1
-        rail_a = []
-        rail_b = []
-        for i, m in enumerate(self.fk_t[: self.fk_number]):
-            # local Z of each chain transform is the width direction
-            z_axis = datatypes.Vector(m[2][0], m[2][1], m[2][2]).normal()
-            rail_a.append(self.fk_pos[i] + z_axis * half_w)
-            rail_b.append(self.fk_pos[i] - z_axis * half_w)
-
-        crv_a = curve.addCurve(
-            self.ribbon_root, self.getName("ribbonRailA_crv"), rail_a,
-            False, 3,
-        )
-        crv_b = curve.addCurve(
-            self.ribbon_root, self.getName("ribbonRailB_crv"), rail_b,
-            False, 3,
-        )
-        self.surface = pm.loft(
-            crv_a, crv_b,
+        width = self.size * 0.2
+        length = self.length if self.length > 1e-4 else 1.0
+        self.surface = pm.nurbsPlane(
             name=self.getName("ribbon_srf"),
+            width=length,
+            lengthRatio=width / length,
+            degree=3,
+            patchesU=max(1, self.fk_number - 1),
+            patchesV=1,
+            axis=[0, 1, 0],
             constructionHistory=False,
-            uniform=True,
-            degree=1,
-            sectionSpans=1,
-            range=False,
-            polygon=0,
         )[0]
-        pm.delete(crv_a, crv_b)
-
+        # degree 1 across the width, 0-1 parameter range on both directions
         pm.rebuildSurface(
             self.surface,
             constructionHistory=False,
@@ -189,7 +179,11 @@ class Component(component.Main):
             spansV=1,
             direction=2,
         )
-        pm.parent(self.surface, self.ribbon_root)
+        pm.parent(self.surface, self.ribbon_root, relative=True)
+        for at in ("tx", "ty", "tz", "rx", "ry", "rz"):
+            pm.setAttr("{}.{}".format(self.surface, at), 0)
+        for at in ("sx", "sy", "sz"):
+            pm.setAttr("{}.{}".format(self.surface, at), 1)
         attribute.lockAttribute(
             self.surface,
             ["tx", "ty", "tz", "rx", "ry", "rz", "sx", "sy", "sz"],
@@ -209,12 +203,13 @@ class Component(component.Main):
         )
 
         # uvPin attach + deform joints -----------------
-        # One uvPin drives all the attach transforms from fixed UVs; the
+        # One uvPin drives all the pin transforms from fixed UVs. The
         # skinCluster deforms the surface and the pins follow.
         self.pin_grp = primitive.addTransform(
             self.ribbon_root, self.getName("pins"),
             transform.getTransform(self.ribbon_root),
         )
+        pm.setAttr(self.pin_grp + ".inheritsTransform", False)
         self.pin_tr = []
         self.pin_npo = []
         self.tweak_ctl = []
@@ -222,20 +217,14 @@ class Component(component.Main):
         self.tweak = self.settings["tweakControls"]
         self.previousTweakTag = self.parentCtlTag
 
-        # uvPin needs the deformed shape and an undeformed reference shape.
-        # We duplicate the surface shape as the "original" and feed the live
-        # skinned shape as the "deformed".
         srf_shape = self.surface.getShape()
-        orig_srf = pm.duplicate(
-            self.surface, name=self.getName("ribbon_srfOrig")
-        )[0]
-        pm.parent(orig_srf, self.ribbon_root)
-        pm.setAttr(orig_srf + ".visibility", False)
-        attribute.lockAttribute(
-            orig_srf,
-            ["tx", "ty", "tz", "rx", "ry", "rz", "sx", "sy", "sz"],
-        )
-        orig_shape = orig_srf.getShape()
+        # the skinCluster leaves an intermediate "...Orig" shape - use it as
+        # the undeformed reference for the pin (falls back to .local)
+        orig_plug = srf_shape + ".local"
+        for sh in self.surface.getShapes():
+            if pm.getAttr(sh + ".intermediateObject"):
+                orig_plug = sh + ".local"
+                break
 
         self.uvpin = pm.createNode(
             "uvPin", name=self.getName("ribbon_uvPin")
@@ -244,19 +233,9 @@ class Component(component.Main):
         pm.setAttr(self.uvpin + ".tangentAxis", 0)
         pm.setAttr(self.uvpin + ".normalAxis", 1)
         pm.connectAttr(
-            srf_shape.attr("worldSpace[0]"),
-            self.uvpin + ".deformedGeometry",
+            srf_shape + ".worldSpace[0]", self.uvpin + ".deformedGeometry"
         )
-        pm.connectAttr(
-            orig_shape.attr("worldSpace[0]"),
-            self.uvpin + ".originalGeometry",
-        )
-        # output relative to the pin group so the pins can be simple children
-        pm.setAttr(self.uvpin + ".relativeSpaceMode", 1)
-        pm.connectAttr(
-            self.pin_grp.attr("worldInverseMatrix[0]"),
-            self.uvpin + ".relativeSpaceMatrix",
-        )
+        pm.connectAttr(orig_plug, self.uvpin + ".originalGeometry")
 
         for i in range(self.jnt_number):
             frac = i / (self.jnt_number - 1.0)
@@ -269,10 +248,11 @@ class Component(component.Main):
             pin_tr = primitive.addTransform(
                 pin_npo, self.getName("pin%s" % i)
             )
-            pm.connectAttr(
-                self.uvpin + ".outputMatrix[%s]" % i,
-                pin_tr + ".offsetParentMatrix",
+            dm_pin = node.createDecomposeMatrixNode(
+                self.uvpin + ".outputMatrix[%s]" % i
             )
+            pm.connectAttr(dm_pin + ".outputTranslate", pin_tr + ".t")
+            pm.connectAttr(dm_pin + ".outputRotate", pin_tr + ".r")
 
             self.pin_npo.append(pin_npo)
             self.pin_tr.append(pin_tr)
@@ -326,7 +306,7 @@ class Component(component.Main):
             self.midFollow_att = self.addAnimParam(
                 "mid_follow", "Mid Follow", "double", 1, 0, 1
             )
-        if self.tweak_ctl:
+        if getattr(self, "tweak_ctl", None):
             self.tweakVis_att = self.addAnimParam(
                 "tweak_vis", "Tweak Vis", "bool", False
             )
@@ -402,7 +382,7 @@ class Component(component.Main):
         pm.connectAttr(
             self.surfaceVis_att, self.surface.attr("visibility")
         )
-        if self.tweak_ctl:
+        if getattr(self, "tweak_ctl", None):
             for ctl in self.tweak_ctl:
                 for shp in ctl.getShapes():
                     pm.connectAttr(
