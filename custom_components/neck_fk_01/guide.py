@@ -19,10 +19,10 @@ VERSION = [1, 0, 0]
 TYPE = "neck_fk_01"
 NAME = "neck"
 DESCRIPTION = (
-    "FK neck with IK spline. The FK controllers are the master of the chain "
-    "and carry the IK / tangent controls as children (FK drives IK), while "
-    "the IK spline still drives the deform joints. Reversed dependency of "
-    "neck_ik_01, same idea as spine_FK_01_horizontal, no cyclic redundancy."
+    "FK neck with IK spline. The FK controllers are the master and carry "
+    "the IK / tangent controls as children (FK drives IK); the IK spline "
+    "still drives the deform joints. Reversed dependency of neck_ik_01, "
+    "same idea as spine_FK_01_horizontal."
 )
 
 ##########################################################
@@ -96,7 +96,7 @@ class Guide(guide.ComponentGuide):
         self.pTangentControls = self.addParam("tangentControls", "bool", False)
         self.pIKWorldOri = self.addParam("IKWorldOri", "bool", False)
 
-        # FCurves (squash and stretch profile)
+        # FCurves
         self.pSt_profile = self.addFCurveParam(
             "st_profile", [[0, 0], [.5, -1], [1, 0]])
 
@@ -151,7 +151,7 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.setObjectName(self.toolName)
         self.setWindowFlags(QtCore.Qt.Window)
         self.setWindowTitle(TYPE)
-        self.resize(350, 520)
+        self.resize(350, 620)
 
     def create_componentControls(self):
         return
@@ -169,12 +169,16 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         # populate component settings
         self.settingsTab.softness_slider.setValue(
             int(self.root.attr("softness").get() * 100))
+
         self.settingsTab.softness_spinBox.setValue(
             int(self.root.attr("softness").get() * 100))
+
         self.settingsTab.maxStretch_spinBox.setValue(
             self.root.attr("maxstretch").get())
+
         self.settingsTab.maxSquash_spinBox.setValue(
             self.root.attr("maxsquash").get())
+
         self.settingsTab.division_spinBox.setValue(
             self.root.attr("division").get())
 

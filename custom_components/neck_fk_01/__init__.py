@@ -2,38 +2,40 @@
 
 FK-primary variant of ``neck_ik_01``.
 
-``neck_ik_01`` keeps the full IK-spline solve (master curve -> curve-slide ->
-slave curve -> path-constrained ``div_cns`` -> deform joints) and the IK
+``neck_ik_01`` keeps a full IK-spline solve (``mst_crv`` -> ``gear_curveslide2``
+-> ``slv_crv`` -> path constrained ``div_cns`` -> deform joints) and the IK
 control at the top of the neck is the master of that solve. Its "fk" controls
-are fake: they are the visible read-out of the spline.
+are fake: their parent null is matrix driven by the spline, so they float on
+the IK result and add on top of it.
 
-``neck_fk_01`` keeps *exactly the same IK-spline solve and the same joint
-output*, but reverses who is in charge:
+``neck_fk_01`` keeps that exact same IK-spline solve and the same joint
+output, but reverses ownership:
 
 * The ``fk*_ctl`` chain is a real, parented FK hierarchy and is the master.
-* The ``ik_ctl`` and the tangent controls are **parented under the FK chain**
-  (``ik_cns`` under ``fk_ctl[-1]``, ``tan0`` under ``fk_ctl[0]``). Rotating or
-  translating an FK control carries its child IK / tangent controls with it
-  through plain DAG parenting - no connection, no constraint.
-* The IK / tangent controls stay fully keyable, so an animator can still add
-  an IK-style offset *on top of* the FK pose (same idea as
-  ``spine_FK_01_horizontal``).
+* ``ik_cns`` (parent of ``ik_ctl``) is a child of the last real FK control,
+  so rotating / translating the FK chain carries the IK and tangent controls
+  with it through plain DAG parenting - no connection, no constraint.
+  ``ik_ctl`` stays keyable so an animator can still add an IK-style offset on
+  top of the FK pose (same idea as ``spine_FK_01_horizontal``).
+* The deform joints are driven by the IK spline (via the leaf ``scl_ref``
+  transforms), NOT by the FK controls directly. The FK -> spline dependency
+  is therefore one directional.
 
 Why there is no cycle
 ---------------------
-The dependency chain is strictly one way::
+::
 
     fk_ctl  --(DAG parent)-->  ik_ctl / tan_ctl
             --(mst_crv CV cns)-->  gear_curveslide2 -> slv_crv
-            --(pathCns)-->  div_cns   (inheritsTransform = False, so it is
-                                       NOT under the FK hierarchy; it only
-                                       moves via the path constraint)
+            --(pathCns)-->  div_cns   (inheritsTransform = False, parented in
+                                       its own chain under root - NOT under the
+                                       FK hierarchy, only moves along the curve)
             -->  scl_ref (leaf)  -->  deform joint
 
-Nothing downstream of ``div_cns`` is ever read back by the FK chain or by the
-curves, and the squash & stretch only writes to the leaf ``scl_ref``
-transforms, so it moves no control. This is the same structure
-``neck_ik_01`` uses; only the ownership of the IK / tangent controls changed.
+Nothing in the FK chain, and none of the curves, ever read ``div_cns``,
+``scl_ref`` or the joints. The ``div_cns -> fk_npo`` matrix connection that
+``neck_ik_01`` uses (the thing that made IK the master) is removed. The
+squash and stretch writes only to the leaf ``scl_ref`` transforms.
 """
 
 import mgear.pymaya as pm
@@ -61,7 +63,7 @@ class Component(component.Main):
         self.normal = self.guide.blades["blade"].z * -1
         self.divisions = self.settings["division"]
 
-        # base orientation of the neck --------------------
+        # Base orientation of the neck --------------------
         t_base = transform.getTransformLookingAt(
             self.guide.pos["root"],
             self.guide.pos["neck"],
@@ -70,7 +72,13 @@ class Component(component.Main):
             self.negate,
         )
 
-        # sampled positions root -> neck for the FK controls
+        # FK Controlers (the master chain) ----------------
+        # A real parented FK hierarchy. First and last divisions are an
+        # obligation, the user only defines the intermediate ones. Positions
+        # are sampled along the guide root -> neck segment.
+        self.fk_ctl = []
+        self.fk_npo = []
+
         self.fk_pos = [
             vector.linearlyInterpolate(
                 self.guide.pos["root"],
@@ -80,12 +88,8 @@ class Component(component.Main):
             for i in range(self.divisions)
         ]
 
-        # FK Controlers (the master chain) ----------------
-        self.fk_ctl = []
-        self.fk_npo = []
         parentctl = self.root
         self.previousCtlTag = self.parentCtlTag
-
         for i in range(self.divisions):
             t = transform.setMatrixPosition(t_base, self.fk_pos[i])
 
@@ -106,19 +110,17 @@ class Component(component.Main):
                 tp=self.previousCtlTag,
             )
             self.fk_ctl.append(fk_ctl)
-            self.previousCtlTag = fk_ctl
 
             attribute.setKeyableAttributes(fk_ctl)
             attribute.setRotOrder(fk_ctl, "ZXY")
             attribute.setInvertMirror(fk_ctl, ["tx", "rz", "ry"])
 
+            self.previousCtlTag = fk_ctl
             parentctl = fk_ctl
 
-        # Ik Controler (child of the FK tip: FK drives it) ------------
+        # Ik Controler (child of the FK tip: FK drives it) -----------
         if self.settings["IKWorldOri"]:
-            t = transform.setMatrixPosition(
-                datatypes.TransformationMatrix(), self.guide.pos["neck"]
-            )
+            t = datatypes.TransformationMatrix()
         else:
             t = transform.getTransformLookingAt(
                 self.guide.pos["tan1"],
@@ -127,7 +129,7 @@ class Component(component.Main):
                 "yx",
                 self.negate,
             )
-            t = transform.setMatrixPosition(t, self.guide.pos["neck"])
+        t = transform.setMatrixPosition(t, self.guide.pos["neck"])
 
         self.ik_cns = primitive.addTransform(
             self.fk_ctl[-1], self.getName("ik_cns"), t
@@ -147,7 +149,7 @@ class Component(component.Main):
         attribute.setRotOrder(self.ik_ctl, "ZXY")
         attribute.setInvertMirror(self.ik_ctl, ["tx", "ry", "rz"])
 
-        # Tangents (also children of the FK chain) -------------------
+        # Tangents (also children of the FK chain) ------------------
         if self.settings["tangentControls"]:
             t = transform.setMatrixPosition(t, self.guide.pos["tan1"])
 
@@ -196,6 +198,15 @@ class Component(component.Main):
                 [self.fk_ctl[0], self.tan0_ctl, self.tan1_ctl, self.ik_ctl],
                 3,
             )
+            self.slv_crv = curve.addCurve(
+                self.root,
+                self.getName("slv_crv"),
+                [datatypes.Vector()] * 10,
+                False,
+                3,
+            )
+            self.mst_crv.setAttr("visibility", False)
+
         else:
             t = transform.setMatrixPosition(t, self.guide.pos["tan1"])
             self.tan1_loc = primitive.addTransform(
@@ -221,21 +232,21 @@ class Component(component.Main):
                 [self.fk_ctl[0], self.tan0_loc, self.tan1_loc, self.ik_ctl],
                 3,
             )
+            self.slv_crv = curve.addCurve(
+                self.root,
+                self.getName("slv_crv"),
+                [datatypes.Vector()] * 10,
+                False,
+                3,
+            )
 
-        self.slv_crv = curve.addCurve(
-            self.root,
-            self.getName("slv_crv"),
-            [datatypes.Vector()] * 10,
-            False,
-            3,
-        )
         self.mst_crv.setAttr("visibility", False)
         self.slv_crv.setAttr("visibility", False)
 
-        # Division -----------------------------------------
-        # First and last divisions are an obligation, the user only defines
-        # the intermediate ones. div_cns are NOT under the FK hierarchy; they
-        # only move along the slave curve via the path constraint.
+        # Division ----------------------------------------
+        # div_cns are NOT under the FK hierarchy. They only move along the
+        # slave curve via the path constraint. Their leaf scl_ref carries the
+        # deform joint.
         parentdiv = self.root
         self.div_cns = []
         self.scl_ref = []
@@ -268,9 +279,8 @@ class Component(component.Main):
             self.div_cns.append(div_cns)
             parentdiv = div_cns
 
-            # Leaf scale reference under the div_cns. The squash & stretch
-            # writes only here, and it has no children, so it moves no
-            # control and cannot feed back into the length measurement.
+            # Leaf scale reference. The squash and stretch writes here only,
+            # and it has no children, so it moves no control.
             scl_ref = primitive.addTransform(
                 div_cns,
                 self.getName("%s_scl_ref" % i),
@@ -278,10 +288,9 @@ class Component(component.Main):
             )
             self.scl_ref.append(scl_ref)
 
-            # deform joint rides the scale reference
             self.jnt_pos.append([scl_ref, i])
 
-            # twist references (replace the spinlookup slerp solver)
+            # Twist references (replace the spinlookup slerp solver)
             twister = primitive.addTransform(
                 parent_twistRef, self.getName("%s_rot_ref" % i), t
             )
@@ -294,7 +303,7 @@ class Component(component.Main):
             self.twister.append(twister)
             self.ref_twist.append(ref_twist)
 
-        # Head --------------------------------------------
+        # Head -------------------------------------------
         t = transform.getTransformLookingAt(
             self.guide.pos["head"],
             self.guide.pos["eff"],
@@ -333,8 +342,7 @@ class Component(component.Main):
     # ATTRIBUTES
     # =====================================================
     def addAttributes(self):
-        """Create the anim and setup rig attributes for the component"""
-
+        """Create the anim and setupr rig attributes for the component"""
         # Anim -------------------------------------------
         self.maxstretch_att = self.addAnimParam(
             "maxstretch",
@@ -343,15 +351,24 @@ class Component(component.Main):
             self.settings["maxstretch"],
             1,
         )
+
         self.maxsquash_att = self.addAnimParam(
-            "maxsquash", "MaxSquash", "double", self.settings["maxsquash"], 0, 1
+            "maxsquash",
+            "MaxSquash",
+            "double",
+            self.settings["maxsquash"],
+            0,
+            1,
         )
+
         self.softness_att = self.addAnimParam(
             "softness", "Softness", "double", self.settings["softness"], 0, 1
         )
+
         self.lock_ori_att = self.addAnimParam(
             "lock_ori", "Lock Ori", "double", 1, 0, 1
         )
+
         self.tan0_att = self.addAnimParam("tan0", "Tangent 0", "double", 1, 0)
         self.tan1_att = self.addAnimParam("tan1", "Tangent 1", "double", 1, 0)
 
@@ -360,7 +377,7 @@ class Component(component.Main):
             "volume", "Volume", "double", 1, 0, 1
         )
 
-        # Head space switch
+        # Ref
         if self.settings["headrefarray"]:
             ref_names = self.get_valid_alias_list(
                 self.settings["headrefarray"].split(",")
@@ -371,7 +388,7 @@ class Component(component.Main):
                     "headref", "Head Ref", 0, ref_names
                 )
 
-        # Neck base space switch
+        # Neck base space switch (replaces neck_ik_01's ikrefarray)
         if self.settings["fkrefarray"]:
             ref_names = self.get_valid_alias_list(
                 self.settings["fkrefarray"].split(",")
@@ -383,6 +400,7 @@ class Component(component.Main):
                 )
 
         # Setup ------------------------------------------
+        # Eval Fcurve
         if self.guide.paramDefs["st_profile"].value:
             self.st_value = self.guide.paramDefs["st_profile"].value
             self.sq_value = self.guide.paramDefs["sq_profile"].value
@@ -396,15 +414,24 @@ class Component(component.Main):
 
         self.st_att = [
             self.addSetupParam(
-                "stretch_%s" % i, "Stretch %s" % i, "double",
-                self.st_value[i], -1, 0,
+                "stretch_%s" % i,
+                "Stretch %s" % i,
+                "double",
+                self.st_value[i],
+                -1,
+                0,
             )
             for i in range(self.divisions)
         ]
+
         self.sq_att = [
             self.addSetupParam(
-                "squash_%s" % i, "Squash %s" % i, "double",
-                self.sq_value[i], 0, 1,
+                "squash_%s" % i,
+                "Squash %s" % i,
+                "double",
+                self.sq_value[i],
+                0,
+                1,
             )
             for i in range(self.divisions)
         ]
@@ -413,14 +440,15 @@ class Component(component.Main):
     # OPERATORS
     # =====================================================
     def addOperators(self):
-        """Create operators and set the relations for the component rig.
+        """Create operators and set the relations for the component rig
 
         Apply operators, constraints, expressions to the hierarchy.
         In order to keep the code clean and easier to debug,
         we shouldn't create any new object in this method.
-        """
 
-        # Tangent position --------------------------------
+        """
+        # Tangent position ---------------------------------
+        # common part
         d = vector.getDistance(self.guide.pos["root"], self.guide.pos["neck"])
         dist_node = node.createDistNode(self.fk_ctl[0], self.ik_ctl)
         rootWorld_node = node.createDecomposeMatrixNode(
@@ -449,7 +477,7 @@ class Component(component.Main):
         )
         pm.connectAttr(res_node + ".outputX", self.tan1_loc.attr("ty"))
 
-        # Curves ------------------------------------------
+        # Curves -------------------------------------------
         op = applyop.gear_curveslide2_op(
             self.slv_crv, self.mst_crv, 0, 1.5, 0.5, 0.5
         )
@@ -457,18 +485,19 @@ class Component(component.Main):
         pm.connectAttr(self.maxsquash_att, op + ".maxsquash")
         pm.connectAttr(self.softness_att, op + ".softness")
 
-        # Volume driver -----------------------------------
+        # Volume driver ------------------------------------
         crv_node = node.createCurveInfoNode(self.slv_crv)
 
-        # Division ----------------------------------------
+        # Division -----------------------------------------
         for i in range(self.divisions):
+            # References
             u = i / (self.divisions - 1.0)
 
             cns = applyop.pathCns(
                 self.div_cns[i], self.slv_crv, False, u, True
             )
             cns.setAttr("frontAxis", 1)  # front axis is 'Y'
-            cns.setAttr("upAxis", 2)     # up axis is 'Z'
+            cns.setAttr("upAxis", 2)  # front axis is 'Z'
 
             # Roll
             intMatrix = applyop.gear_intmatrix_op(
@@ -478,20 +507,20 @@ class Component(component.Main):
             pm.connectAttr(
                 dm_node + ".outputRotate", self.twister[i].attr("rotate")
             )
+
             pm.parentConstraint(
                 self.twister[i], self.ref_twist[i], maintainOffset=True
             )
+
             pm.connectAttr(
                 self.ref_twist[i] + ".translate", cns + ".worldUpVector"
             )
 
-            # Squash & stretch (writes to the leaf scl_ref only)
+            # Squash n Stretch (writes to the leaf scl_ref only)
             op = applyop.gear_squashstretch2_op(
-                self.scl_ref[i],
-                self.root,
-                pm.arclen(self.slv_crv),
-                "y",
+                self.scl_ref[i], self.root, pm.arclen(self.slv_crv), "y"
             )
+
             pm.connectAttr(self.volume_att, op + ".blend")
             pm.connectAttr(crv_node + ".arcLength", op + ".driver")
             pm.connectAttr(self.st_att[i], op + ".stretch")
@@ -509,6 +538,7 @@ class Component(component.Main):
                     self.lock_ori_att,
                 )
                 self.div_cns[i].attr("rotate").disconnect()
+
                 pm.connectAttr(
                     blend_node + ".output", self.div_cns[i] + ".rotate"
                 )
@@ -550,9 +580,9 @@ class Component(component.Main):
     def connect_standardWithFkRef(self):
         self.parent.addChild(self.root)
 
-        # Neck base space switch: drives fk0_npo (above every control), so the
-        # whole neck - including its child IK / tangent controls - inherits
-        # the space. Never touches div_cns / the joints directly.
+        # Neck base space switch. Drives fk0_npo (above every FK control), so
+        # the whole neck - including the child IK / tangent controls -
+        # inherits the space. Never touches div_cns / the joints.
         if self.settings["fkrefarray"] and hasattr(self, "fkref_att"):
             ref_names = self.get_valid_ref_list(
                 self.settings["fkrefarray"].split(",")
