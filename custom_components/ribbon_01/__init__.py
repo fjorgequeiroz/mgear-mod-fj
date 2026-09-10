@@ -110,10 +110,13 @@ class Component(component.Main):
             attribute.setKeyableAttributes(fk_ctl)
             attribute.setInvertMirror(fk_ctl, ["tx", "ty", "tz"])
 
-            # the surface is skinned to this reference, one per FK control
-            fk_ref = primitive.addTransform(
-                fk_ctl, self.getName("fk%s_ref" % i), t
+            # the surface is skinned to this reference joint, one per FK
+            # control (a joint, not a plain transform, so skinCluster accepts
+            # it as an influence)
+            fk_ref = primitive.addJoint(
+                fk_ctl, self.getName("fk%s_ref" % i), t, vis=False
             )
+            fk_ref.attr("drawStyle").set(2)  # None - never drawn
 
             self.fk_npo.append(fk_npo)
             self.fk_ctl.append(fk_ctl)
@@ -171,9 +174,11 @@ class Component(component.Main):
             self.surface, ["tx", "ty", "tz", "rx", "ry", "rz", "sx", "sy", "sz"]
         )
 
-        # skin the surface to the fk references
+        # skin the surface to the fk reference joints. Influences must be
+        # passed as separate positional args (a list arg makes cmds.skinCluster
+        # raise "Select skeleton(s) and object(s) to bind").
         self.surface_skin = pm.skinCluster(
-            self.fk_ref,
+            *self.fk_ref,
             self.surface,
             name=self.getName("ribbon_skinCluster"),
             toSelectedBones=True,
