@@ -13,49 +13,81 @@ ropes, straps, antennae, cables, cartoon limbs, lip / brow strips.
 
 | Setting | Meaning |
 | --- | --- |
-| **FK Controllers** (`fkNb`) | Number of FK controls, each driving one bind joint the surface is skinned to (min 2). |
+| **Mode** | `FK` — bind joints follow a plain FK chain. `IK` — bind joints follow an IK-spline solve (base / mid / tip controls + a curve). `FK/IK` — both are built and the `Fk/Ik Blend` attribute blends between them, with control visibility swapping. |
+| **Fk/Ik Blend** | Starting blend value (0 = FK, 1 = IK). |
+| **FK Controllers** (`fkNb`) | Number of FK controls / bind joints / IK spline samples (min 2). |
 | **Deform Joints** (`jntNb`) | Number of pin transforms / deform joints attached to the surface (min 2), spread evenly along its length. |
 | **Tweak Controls** | Adds a tweak control on every pin, between the pin and its deform joint. |
-| **Base Reference Array** | Space switch for the base of the ribbon (`ik_cns`, above the FK chain). |
+| **Base Reference Array** | Space switch for the base of the ribbon (`ik_cns`). |
+
+## FK / IK matching
+
+`ribbon_01` is a spline component, so mGear's built-in 2-joint `ikFkMatch`
+does not apply. Two module functions handle it:
+
+```python
+from ribbon_01 import ribbon_IKToFK, ribbon_FKToIK
+ribbon_FKToIK(fk_control_names)                       # snap FK to the IK result
+ribbon_IKToFK(fk_control_names, ik_control_names)     # snap the IK controls to the FK pose
+```
+
+`ribbon_FKToIK` reads the `*_mth` match transforms wired on each FK control
+(they track the IK `div_cns`). Wire these to a synoptic / picker button.
 
 ## Animation attributes (on the UI host)
 
 | Attribute | Effect |
 | --- | --- |
+| **Fk/Ik Blend** | (FK/IK mode) 0 = FK, 1 = IK. Blends the bind joints and swaps control visibility. |
 | **Twist Start** / **Twist End** | Roll at the base / tip, blended linearly along the length and applied to the bind joints — the skin twists and the pins inherit it. |
-| **Roll** | Uniform roll of the whole ribbon (added to every bind joint's length-axis rotation). |
+| **Roll** | Uniform roll of the whole ribbon. |
 | **Volume** | Squash & stretch amount (0 = off, 1 = full volume preservation on the deform joints' cross-section). |
 | **Max Stretch** / **Max Squash** | Clamp range for the length ratio that drives the volume factor. |
+| **IK Position** / **IK Max Stretch** / **IK Softness** | (IK / FK-IK mode) the curve-slide operator's parameters. |
 | **Surface Vis** | Show / hide the NURBS surface (off by default). |
-| **Tweak Vis** | Show / hide the tweak controls (present when Tweak Controls is on). |
-| **Base Ref** | Base space switch (present when the Base Reference Array has more than one entry). |
+| **Tweak Vis** | Show / hide the tweak controls. |
+| **Base Ref** | Base space switch. |
 
 ## Hierarchy
 
 ```
 root
 └─ ik_cns
-   └─ fk0_npo → fk0_ctl → roll0 → bind0_jnt      ← PLAIN parented FK chain
-      └─ fk1_npo → fk1_ctl → roll1 → bind1_jnt
-         └─ … → fk(N-1)_ctl → roll(N-1) → bind(N-1)_jnt
+   ├─ fk0_npo → fk0_ctl → … → fk(N-1)_ctl        (FK chain, if Mode != IK)
+   ├─ ik0_npo → ik0_ctl   (base)                 (IK spline controls, if Mode != FK)
+   │  ikMid_npo → ikMid_ctl   (auto-follows base/tip)
+   │  ikTip_npo → ikTip_ctl   (tip)
+   │  (tan0_loc under ik0_ctl, tan1_loc under ikTip_ctl)
+   └─ blnd0_npo → roll0 → bind0_jnt              (blend layer, one per segment)
+      blnd1_npo → roll1 → bind1_jnt
+      …
 
 root
-└─ ribbon_root                       (oriented on the guide)
-   ├─ ribbon_srf                     (NURBS plane, local zeroed, skinned to bind*_jnt)
-   ├─ ribbon_srfShapeOrig            (intermediate from the skinCluster)
+├─ mst_crv / slv_crv                             (IK spline curves)
+├─ 0_cns → 1_cns → …                             (div_cns chain, path-constrained
+│                                                  to slv_crv, inheritsTransform off)
+└─ ribbon_root                                   (oriented on the guide)
+   ├─ ribbon_srf                                 (NURBS plane, inheritsTransform off,
+   │                                              deformed only by the skinCluster)
    └─ pins
       ├─ pin0 (t/r ← surface matrix) → tweak0_npo → tweak0_ctl → attach0 → joint 0
       └─ …
 ```
 
-* **FK chain** — a plain parented chain. `fk{i}_npo` is parented to
-  `fk{i-1}_ctl`; no reparenting, no auto-follow constraints. Under each
-  control a `roll` transform receives the twist rotation, and a hidden
-  `bind_jnt` (the skin influence) hangs off that.
+* **FK chain** — a plain parented chain, `fk{i}_npo` under `fk{i-1}_ctl`.
+* **IK spline** — 3 controls (base / mid / tip). `mst_crv` runs through
+  `[ik0_ctl, tan0_loc, tan1_loc, ikTip_ctl]`; `gear_curveslide2_op`
+  produces `slv_crv`; each `div_cns` is `pathCns`-constrained along it with
+  a twist reference (`gear_intmatrix_op` roll).
+* **Blend layer** — `blnd{i}_npo` (flat under `ik_cns`, `inheritsTransform`
+  off) is `parentConstrained` (maintainOffset = False, like `chain_01`) to
+  the FK control and/or the IK `div_cns`; in FK/IK mode the weights are
+  driven by `Fk/Ik Blend` and its reverse. A `roll` transform under it
+  carries the twist; the hidden `bind_jnt` (skin influence) hangs off that.
 * **Surface** — a `nurbsPlane` (U = length, one span per FK segment; V =
-  width), rebuilt to degree 3 U / degree 1 V, `keepRange = 0` (0–1 param
-  range). Parented onto the oriented `ribbon_root` with a zeroed local
-  transform, then deformed **only** by the skinCluster.
+  width), rebuilt to degree 3 U / degree 1 V, 0–1 range, parented onto the
+  oriented `ribbon_root` with local zeroed and `inheritsTransform` off,
+  deformed **only** by the skinCluster.
 * **Pins** — one per deform joint at `U = i / (jntNb-1)`, `V = 0.5`. A
   `pointOnSurfaceInfo` reads the deformed surface; its position + normalized
   U-tangent / normal / V-tangent are packed into a `fourByFourMatrix`
@@ -63,11 +95,10 @@ root
   space with `gear_mulmatrix_op`, decomposed, and connected to the pin's
   translate / rotate.
 * **Squash & stretch** — the distance between the first and last bind joints
-  (FK-driven, no cycle) is normalised by the global rig scale, clamped
-  between **Max Squash** and **Max Stretch**, turned into a
-  `1 / sqrt(ratio)` cross-section factor, blended towards 1 by **Volume**,
-  and applied to the deform joints' Y and Z scale (X keeps only the global
-  rig scale).
+  is normalised by the global rig scale, clamped between **Max Squash** and
+  **Max Stretch**, turned into a `1 / sqrt(ratio)` cross-section factor,
+  blended towards 1 by **Volume**, and applied to the deform joints' Y and Z
+  scale.
 
 ## Why there is no cycle
 

@@ -21,39 +21,63 @@ class Ui_Form(object):
             | QtCore.Qt.AlignVCenter)
         self.formLayout.setObjectName("formLayout")
 
+        self.mode_label = QtWidgets.QLabel(self.groupBox)
+        self.mode_label.setObjectName("mode_label")
+        self.formLayout.setWidget(
+            0, QtWidgets.QFormLayout.LabelRole, self.mode_label)
+        self.mode_comboBox = QtWidgets.QComboBox(self.groupBox)
+        self.mode_comboBox.setObjectName("mode_comboBox")
+        self.mode_comboBox.addItem("FK")
+        self.mode_comboBox.addItem("IK")
+        self.mode_comboBox.addItem("FK/IK")
+        self.formLayout.setWidget(
+            0, QtWidgets.QFormLayout.FieldRole, self.mode_comboBox)
+
+        self.blend_label = QtWidgets.QLabel(self.groupBox)
+        self.blend_label.setObjectName("blend_label")
+        self.formLayout.setWidget(
+            1, QtWidgets.QFormLayout.LabelRole, self.blend_label)
+        self.blend_spinBox = QtWidgets.QDoubleSpinBox(self.groupBox)
+        self.blend_spinBox.setMaximum(1.0)
+        self.blend_spinBox.setSingleStep(0.1)
+        self.blend_spinBox.setProperty("value", 1.0)
+        self.blend_spinBox.setObjectName("blend_spinBox")
+        self.formLayout.setWidget(
+            1, QtWidgets.QFormLayout.FieldRole, self.blend_spinBox)
+
         self.fkNb_label = QtWidgets.QLabel(self.groupBox)
         self.fkNb_label.setObjectName("fkNb_label")
         self.formLayout.setWidget(
-            0, QtWidgets.QFormLayout.LabelRole, self.fkNb_label)
+            2, QtWidgets.QFormLayout.LabelRole, self.fkNb_label)
         self.fkNb_spinBox = QtWidgets.QSpinBox(self.groupBox)
         self.fkNb_spinBox.setMinimum(2)
         self.fkNb_spinBox.setMaximum(999)
         self.fkNb_spinBox.setProperty("value", 3)
         self.fkNb_spinBox.setObjectName("fkNb_spinBox")
         self.formLayout.setWidget(
-            0, QtWidgets.QFormLayout.FieldRole, self.fkNb_spinBox)
+            2, QtWidgets.QFormLayout.FieldRole, self.fkNb_spinBox)
 
         self.jntNb_label = QtWidgets.QLabel(self.groupBox)
         self.jntNb_label.setObjectName("jntNb_label")
         self.formLayout.setWidget(
-            1, QtWidgets.QFormLayout.LabelRole, self.jntNb_label)
+            3, QtWidgets.QFormLayout.LabelRole, self.jntNb_label)
         self.jntNb_spinBox = QtWidgets.QSpinBox(self.groupBox)
         self.jntNb_spinBox.setMinimum(2)
         self.jntNb_spinBox.setMaximum(999)
         self.jntNb_spinBox.setProperty("value", 10)
         self.jntNb_spinBox.setObjectName("jntNb_spinBox")
         self.formLayout.setWidget(
-            1, QtWidgets.QFormLayout.FieldRole, self.jntNb_spinBox)
+            3, QtWidgets.QFormLayout.FieldRole, self.jntNb_spinBox)
 
         self.tweakControls_label = QtWidgets.QLabel(self.groupBox)
         self.tweakControls_label.setObjectName("tweakControls_label")
         self.formLayout.setWidget(
-            2, QtWidgets.QFormLayout.LabelRole, self.tweakControls_label)
+            4, QtWidgets.QFormLayout.LabelRole, self.tweakControls_label)
         self.tweakControls_checkBox = QtWidgets.QCheckBox(self.groupBox)
         self.tweakControls_checkBox.setText("")
         self.tweakControls_checkBox.setObjectName("tweakControls_checkBox")
         self.formLayout.setWidget(
-            2, QtWidgets.QFormLayout.FieldRole, self.tweakControls_checkBox)
+            4, QtWidgets.QFormLayout.FieldRole, self.tweakControls_checkBox)
 
         self.gridLayout_2.addLayout(self.formLayout, 0, 0, 1, 1)
         self.gridLayout.addWidget(self.groupBox, 0, 0, 1, 1)
@@ -112,6 +136,10 @@ class Ui_Form(object):
 
     def retranslateUi(self, Form):
         Form.setWindowTitle(gqt.fakeTranslate("Form", "Form", None, -1))
+        self.mode_label.setText(
+            gqt.fakeTranslate("Form", "Mode", None, -1))
+        self.blend_label.setText(
+            gqt.fakeTranslate("Form", "Fk/Ik Blend", None, -1))
         self.fkNb_label.setText(
             gqt.fakeTranslate("Form", "FK Controllers", None, -1))
         self.jntNb_label.setText(

@@ -19,10 +19,10 @@ VERSION = [1, 0, 0]
 TYPE = "ribbon_01"
 NAME = "ribbon"
 DESCRIPTION = (
-    "Ribbon / surface rig. A NURBS surface is skinned to a chain of FK "
-    "controllers, and any number of deform joints ride the surface. Choose "
-    "the number of FK controllers and the number of deform joints "
-    "independently."
+    "Ribbon / surface rig. A NURBS surface is skinned to a chain of bind "
+    "joints blended between an FK chain and an IK-spline solve (Mode: FK / "
+    "IK / FK-IK). Any number of deform joints ride the surface. Twist, "
+    "roll and volume preservation on the UI host."
 )
 
 ##########################################################
@@ -62,6 +62,10 @@ class Guide(guide.ComponentGuide):
 
     def addParameters(self):
         """Add the configurations settings"""
+
+        # Mode: 0 FK, 1 IK, 2 FK/IK
+        self.pMode = self.addParam("mode", "long", 2, 0, 2)
+        self.pBlend = self.addParam("blend", "double", 1, 0, 1)
 
         # Counts
         self.pFkNb = self.addParam("fkNb", "long", 3, 2)
@@ -128,6 +132,10 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         """Populate the controls values from the custom attributes."""
         self.tabs.insertTab(1, self.settingsTab, "Component Settings")
 
+        self.settingsTab.mode_comboBox.setCurrentIndex(
+            self.root.attr("mode").get())
+        self.settingsTab.blend_spinBox.setValue(
+            self.root.attr("blend").get())
         self.settingsTab.fkNb_spinBox.setValue(
             self.root.attr("fkNb").get())
         self.settingsTab.jntNb_spinBox.setValue(
@@ -147,6 +155,16 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.setLayout(self.settings_layout)
 
     def create_componentConnections(self):
+        self.settingsTab.mode_comboBox.currentIndexChanged.connect(
+            partial(self.updateComboBox,
+                    self.settingsTab.mode_comboBox,
+                    "mode"))
+
+        self.settingsTab.blend_spinBox.valueChanged.connect(
+            partial(self.updateSpinBox,
+                    self.settingsTab.blend_spinBox,
+                    "blend"))
+
         self.settingsTab.fkNb_spinBox.valueChanged.connect(
             partial(self.updateSpinBox,
                     self.settingsTab.fkNb_spinBox,
