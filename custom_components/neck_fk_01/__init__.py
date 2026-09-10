@@ -20,8 +20,12 @@ Cyclic redundancy is avoided by construction:
   what made the IK control the master in ``neck_ik_01``.
 * ``ik_ctl`` never feeds back into anything the FK chain reads. The only
   connection is ``fk_ctl[-1].worldMatrix -> ik_cns`` (one direction).
-* The optional squash and stretch and the optional display curve only read
-  transforms that are FK driven, never the ``ik_ctl``.
+* The squash and stretch writes only to the leaf ``scl_ref`` transforms.
+  Those have no children, so scaling them moves no control. The live
+  chain-length measurement can therefore read the ``fk_ctl`` world positions
+  without the squash output feeding back into that measurement (which is the
+  classic stretchy-FK cycle, and how the first draft of this component broke).
+* The optional display curve also reads FK-driven transforms only.
 """
 
 import mgear.pymaya as pm
@@ -63,7 +67,7 @@ class Component(component.Main):
         # how many intermediate divisions.
         self.fk_ctl = []
         self.fk_npo = []
-        self.scl_npo = []
+        self.scl_ref = []
 
         parentctl = self.root
         self.previousCtlTag = self.parentCtlTag
@@ -81,17 +85,8 @@ class Component(component.Main):
         for i in range(self.divisions):
             t = transform.setMatrixPosition(t_base, self.fk_pos[i])
 
-            # scale compensation buffer, keeps children unscaled when the
-            # squash and stretch pushes scale into fk_npo
-            scl_npo = primitive.addTransform(
-                parentctl,
-                self.getName("%s_scl_npo" % i),
-                transform.getTransform(parentctl),
-            )
-            self.scl_npo.append(scl_npo)
-
             fk_npo = primitive.addTransform(
-                scl_npo, self.getName("fk%s_npo" % i), t
+                parentctl, self.getName("fk%s_npo" % i), t
             )
             self.fk_npo.append(fk_npo)
 
@@ -113,7 +108,20 @@ class Component(component.Main):
             attribute.setRotOrder(fk_ctl, "ZXY")
             attribute.setInvertMirror(fk_ctl, ["tx", "rz", "ry"])
 
-            self.jnt_pos.append([fk_ctl, i])
+            # Leaf scale reference. The squash and stretch writes here and
+            # NOWHERE else. Because it has no children, scaling it moves no
+            # control, so the live chain-length measurement below can safely
+            # read the fk_ctl world positions without creating a cycle.
+            scl_ref = primitive.addTransform(
+                fk_ctl,
+                self.getName("%s_scl_ref" % i),
+                transform.getTransform(fk_ctl),
+            )
+            self.scl_ref.append(scl_ref)
+
+            # Deform joint rides the scale reference (position/orient from the
+            # fk_ctl, scale from the squash and stretch).
+            self.jnt_pos.append([scl_ref, i])
 
             parentctl = fk_ctl
 
@@ -340,8 +348,12 @@ class Component(component.Main):
         pm.connectAttr(dm_node + ".outputScale", self.ik_cns.attr("s"))
 
         # Squash and stretch ----------------------------
-        # Live length of the FK chain, measured only from FK driven
-        # transforms (the fk_npo of each division).
+        # Live length of the FK chain.
+        #
+        # No cycle: the squash and stretch only writes to the leaf scl_ref
+        # transforms (which have no children), so it never moves an fk_ctl.
+        # The distanceBetween nodes therefore read fk_ctl world positions that
+        # the squash output cannot feed back into.
         rootWorld_node = node.createDecomposeMatrixNode(
             self.root.attr("worldMatrix")
         )
@@ -354,6 +366,7 @@ class Component(component.Main):
             seg_dist = node.createDistNode(
                 self.fk_ctl[i], self.fk_ctl[i + 1]
             )
+            # normalise out the global rig scale
             seg_div = node.createDivNode(
                 seg_dist + ".distance", rootWorld_node + ".outputScaleX"
             )
@@ -362,11 +375,8 @@ class Component(component.Main):
         length_node = node.createPlusMinusAverage1D(length_plugs)
 
         for i in range(self.divisions):
-            # squash and stretch is pushed into fk_npo (local to each
-            # control); scl_npo only carries the scale compensation so the
-            # two never fight over the same plug.
             op = applyop.gear_squashstretch2_op(
-                self.fk_npo[i],
+                self.scl_ref[i],
                 self.root,
                 rest_length,
                 "y",
@@ -375,27 +385,7 @@ class Component(component.Main):
             pm.connectAttr(length_node + ".output1D", op + ".driver")
             pm.connectAttr(self.st_att[i], op + ".stretch")
             pm.connectAttr(self.sq_att[i], op + ".squash")
-            op.setAttr("driver_min", 0.1)
-
-            # cancel the parent scale so only the local squash remains
-            if i != 0:
-                div_node = node.createDivNode(
-                    [1, 1, 1],
-                    [
-                        self.fk_npo[i - 1] + ".sx",
-                        self.fk_npo[i - 1] + ".sy",
-                        self.fk_npo[i - 1] + ".sz",
-                    ],
-                )
-                pm.connectAttr(
-                    div_node + ".output", self.scl_npo[i] + ".scale"
-                )
-
-        # scale compensation at the base
-        dm_node = node.createDecomposeMatrixNode(
-            self.scl_npo[0] + ".parentInverseMatrix"
-        )
-        pm.connectAttr(dm_node + ".outputScale", self.scl_npo[0] + ".scale")
+            op.setAttr("driver_min", rest_length * 0.1)
 
     # =====================================================
     # CONNECTOR

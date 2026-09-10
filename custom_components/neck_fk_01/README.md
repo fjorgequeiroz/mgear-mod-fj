@@ -45,9 +45,20 @@ constraint or reference array — can feed a transform from `ik_ctl` back into
 the FK chain. A dependency cycle is therefore impossible **by construction**,
 not merely avoided by careful ordering.
 
-The optional squash & stretch and the optional display curve also read
-**only** FK-driven transforms (`fk_npo` scale, `fk_ctl` world positions for
-the live length), never `ik_ctl`.
+### Stretchy-FK without a cycle
+
+The optional squash & stretch measures the live chain length from the
+`fk_ctl` world positions (`distanceBetween` per segment) and feeds a
+`mgear_squashStretch2` node per division. The trap here is obvious: if the
+squash output scaled anything *above* an `fk_ctl`, it would move that control,
+change the measured length, and re-trigger the squash — a cycle (this is
+exactly what the first draft of this component hit).
+
+It is avoided by writing the squash **only to a leaf `scl_ref` transform**
+parented under each `fk_ctl` with nothing below it. Scaling `scl_ref` moves no
+control, so the measurement it depends on is never disturbed. The deform joint
+rides `scl_ref` (position/orientation from `fk_ctl`, scale from the squash).
+The FK control nulls (`fk_npo`) are left completely out of the squash.
 
 ## Settings
 
