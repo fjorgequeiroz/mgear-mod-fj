@@ -184,6 +184,11 @@ class Component(component.Main):
             pm.setAttr("{}.{}".format(self.surface, at), 0)
         for at in ("sx", "sy", "sz"):
             pm.setAttr("{}.{}".format(self.surface, at), 1)
+        # The skinCluster is the ONLY thing that should move the surface -
+        # its CVs already follow the bind joints in world space. If the
+        # transform also inherited the rig motion the surface (and every
+        # pin reading it) would be transformed twice.
+        pm.setAttr(self.surface + ".inheritsTransform", False)
         attribute.lockAttribute(
             self.surface,
             ["tx", "ty", "tz", "rx", "ry", "rz", "sx", "sy", "sz"],
