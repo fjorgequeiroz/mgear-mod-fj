@@ -74,19 +74,35 @@ class Component(component.Main):
 
         # FK Controlers (the master chain) ----------------
         # A real parented FK hierarchy. First and last divisions are an
-        # obligation, the user only defines the intermediate ones. Positions
-        # are sampled along the guide root -> neck segment.
+        # obligation, the user only defines the intermediate ones.
+        #
+        # The FK controls must sit where the div_cns / joints will sit at
+        # rest, otherwise the FK boxes look offset from the joints. The
+        # div_cns are path constrained (fraction / arc-length mode) along a
+        # degree 3 curve through [root, tan0, tan1, neck], so we build that
+        # same curve, sample it by uniform arc length, then delete it.
         self.fk_ctl = []
         self.fk_npo = []
 
-        self.fk_pos = [
-            vector.linearlyInterpolate(
+        tmp_crv = curve.addCurve(
+            self.root,
+            self.getName("tmpSample_crv"),
+            [
                 self.guide.pos["root"],
+                self.guide.pos["tan0"],
+                self.guide.pos["tan1"],
                 self.guide.pos["neck"],
-                i / (self.divisions - 1.0),
+            ],
+            False,
+            3,
+        )
+        self.fk_pos = [
+            datatypes.Vector(p[0], p[1], p[2])
+            for p in curve.get_uniform_world_positions_on_curve(
+                tmp_crv.name(), self.divisions
             )
-            for i in range(self.divisions)
         ]
+        pm.delete(tmp_crv)
 
         parentctl = self.root
         self.previousCtlTag = self.parentCtlTag
@@ -312,8 +328,10 @@ class Component(component.Main):
             self.negate,
         )
 
+        # Parent the head under the IK control so it follows the neck tip as
+        # shaped by both the FK chain and any IK offset the animator adds.
         self.head_cns = primitive.addTransform(
-            self.fk_ctl[-1], self.getName("head_cns"), t
+            self.ik_ctl, self.getName("head_cns"), t
         )
 
         dist = vector.getDistance(
@@ -388,7 +406,8 @@ class Component(component.Main):
                     "headref", "Head Ref", 0, ref_names
                 )
 
-        # Neck base space switch (replaces neck_ik_01's ikrefarray)
+        # Neck base space switch (the FK equivalent of neck_ik_01's
+        # ikrefarray; chickenStyleIK still toggles translate pinning)
         if self.settings["fkrefarray"]:
             ref_names = self.get_valid_alias_list(
                 self.settings["fkrefarray"].split(",")
@@ -588,10 +607,17 @@ class Component(component.Main):
                 self.settings["fkrefarray"].split(",")
             )
             if len(ref_names) >= 1:
+                # Chicken style: when checked, the neck base is pinned in
+                # translation to the reference too (bird / chicken neck).
+                # Unchecked, only the rotation is inherited (regular neck).
+                if self.settings["chickenStyleIK"]:
+                    skipTranslate = "none"
+                else:
+                    skipTranslate = ["x", "y", "z"]
                 ref = [self.rig.findRelative(n) for n in ref_names]
                 ref.append(self.fk_npo[0])
                 cns_node = pm.parentConstraint(
-                    *ref, skipTranslate=["x", "y", "z"], maintainOffset=True
+                    *ref, skipTranslate=skipTranslate, maintainOffset=True
                 )
                 cns_attr_names = pm.parentConstraint(
                     cns_node, query=True, weightAliasList=True

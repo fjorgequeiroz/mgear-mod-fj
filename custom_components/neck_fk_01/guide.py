@@ -94,6 +94,7 @@ class Guide(guide.ComponentGuide):
         # Options
         self.pDivision = self.addParam("division", "long", 5, 3)
         self.pTangentControls = self.addParam("tangentControls", "bool", False)
+        self.pChickenStyleIk = self.addParam("chickenStyleIK", "bool", True)
         self.pIKWorldOri = self.addParam("IKWorldOri", "bool", False)
 
         # FCurves
@@ -185,6 +186,9 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.populateCheck(self.settingsTab.tangentControls_checkBox,
                            "tangentControls")
 
+        self.populateCheck(self.settingsTab.chickenStyleIK_checkBox,
+                           "chickenStyleIK")
+
         self.populateCheck(self.settingsTab.IKWorldOri_checkBox,
                            "IKWorldOri")
 
@@ -234,6 +238,11 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
             partial(self.updateCheck,
                     self.settingsTab.tangentControls_checkBox,
                     "tangentControls"))
+
+        self.settingsTab.chickenStyleIK_checkBox.stateChanged.connect(
+            partial(self.updateCheck,
+                    self.settingsTab.chickenStyleIK_checkBox,
+                    "chickenStyleIK"))
 
         self.settingsTab.IKWorldOri_checkBox.stateChanged.connect(
             partial(self.updateCheck,

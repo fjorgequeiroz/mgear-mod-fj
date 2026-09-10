@@ -19,7 +19,8 @@ Same idea as `spine_FK_01_horizontal`.
 | Twist refs, `gear_intmatrix_op` roll, `Lock Ori` | ✔ | ✔ (unchanged) |
 | Deform joints | `jnt_pos` on `fk_ctl` | `jnt_pos` on the leaf `scl_ref` under each `div_cns` |
 | `div_cns → fk_npo` matrix read-out | ✔ (this is what makes IK the master) | **removed** |
-| `chickenStyleIK`, `ikrefarray` | ✔ | replaced by **`fkrefarray`** on the neck base |
+| `ikrefarray` | ✔ | replaced by **`fkrefarray`** on the neck base |
+| `chickenStyleIK` | pins the IK ref in translation | kept — pins the **FK base ref** in translation (bird / chicken neck) |
 
 ## Hierarchy
 
@@ -28,17 +29,25 @@ root
 └─ fk0_npo → fk0_ctl
    └─ fk1_npo → fk1_ctl
       └─ … → fkN_ctl
-         ├─ ik_cns → ik_ctl          (+ tan1_loc/ctl under ik_ctl)
-         └─ head_cns → head_ctl
-   └─ (tan0_loc/ctl under fk0_ctl)
+         └─ ik_cns → ik_ctl
+              ├─ tan1_loc / tan1_ctl
+              └─ head_cns → head_ctl
+   └─ (tan0_loc / tan0_ctl under fk0_ctl)
 
 root
 └─ 0_cns → 1_cns → … → N_cns         (div_cns chain, inheritsTransform = False)
      └─ N_scl_ref  → deform joint N
 ```
 
-`ik_cns` is parented under the last FK control, `tan0` under the first. There
-is **no connection or constraint** from FK to IK — it is pure hierarchy.
+`ik_cns` is parented under the last FK control, `tan0` under the first, and
+the **head is parented under `ik_ctl`** so it follows the neck tip as shaped
+by the FK chain *and* by any IK offset the animator dials in. There is **no
+connection or constraint** from FK to IK — it is pure hierarchy.
+
+The FK controls' rest positions are sampled by uniform arc length along a
+degree-3 curve through `[root, tan0, tan1, neck]` (the same curve the
+`div_cns` are path-constrained to), so the FK boxes sit on the joints at
+rest instead of on a straight line between root and neck.
 
 ## Why there is no cycle
 
@@ -73,6 +82,7 @@ fk_ctl ──(DAG parent)──▶ ik_ctl / tan_ctl
 | **Tangent Controls** | Exposes `tan0_ctl` / `tan1_ctl` as real controls instead of hidden locators. |
 | **IK Ctl World Ori** | Aligns the IK control to world space. |
 | **Squash and Stretch Profile** | FCurve profile for the per-division volume preservation. |
+| **Chicken style IK** | When checked, the FK Base Reference Array pins the neck base in **translation** as well as rotation (bird / chicken neck). Unchecked: rotation only. |
 | **FK Base Reference Array** | Space switch for the base of the neck. Drives `fk0_npo` (above every control), so the child IK / tangent controls inherit it too. Replaces `neck_ik_01`'s IK Reference Array. |
 | **Head Reference Array** | Space switch for the head control (identical to `neck_ik_01`). |
 
