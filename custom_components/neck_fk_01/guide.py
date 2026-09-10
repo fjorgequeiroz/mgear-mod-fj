@@ -19,9 +19,10 @@ VERSION = [1, 0, 0]
 TYPE = "neck_fk_01"
 NAME = "neck"
 DESCRIPTION = (
-    "FK neck. The FK controllers are the master of the chain and drive a "
-    "locked IK read-out control at the tip of the neck. Reversed dependency "
-    "of neck_ik_01, built to avoid any cyclic redundancy."
+    "FK neck with IK spline. The FK controllers are the master of the chain "
+    "and carry the IK / tangent controls as children (FK drives IK), while "
+    "the IK spline still drives the deform joints. Reversed dependency of "
+    "neck_ik_01, same idea as spine_FK_01_horizontal, no cyclic redundancy."
 )
 
 ##########################################################
@@ -84,6 +85,11 @@ class Guide(guide.ComponentGuide):
         # Ref arrays
         self.pHeadRefArray = self.addParam("headrefarray", "string", "")
         self.pFkRefArray = self.addParam("fkrefarray", "string", "")
+
+        # IK-spline default values
+        self.pMaxStretch = self.addParam("maxstretch", "double", 1.5, 1)
+        self.pMaxSquash = self.addParam("maxsquash", "double", .5, 0, 1)
+        self.pSoftness = self.addParam("softness", "double", 0, 0, 1)
 
         # Options
         self.pDivision = self.addParam("division", "long", 5, 3)
@@ -161,6 +167,14 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.tabs.insertTab(1, self.settingsTab, "Component Settings")
 
         # populate component settings
+        self.settingsTab.softness_slider.setValue(
+            int(self.root.attr("softness").get() * 100))
+        self.settingsTab.softness_spinBox.setValue(
+            int(self.root.attr("softness").get() * 100))
+        self.settingsTab.maxStretch_spinBox.setValue(
+            self.root.attr("maxstretch").get())
+        self.settingsTab.maxSquash_spinBox.setValue(
+            self.root.attr("maxsquash").get())
         self.settingsTab.division_spinBox.setValue(
             self.root.attr("division").get())
 
@@ -186,6 +200,26 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.setLayout(self.settings_layout)
 
     def create_componentConnections(self):
+
+        self.settingsTab.softness_slider.valueChanged.connect(
+            partial(self.updateSlider,
+                    self.settingsTab.softness_slider,
+                    "softness"))
+
+        self.settingsTab.softness_spinBox.valueChanged.connect(
+            partial(self.updateSlider,
+                    self.settingsTab.softness_spinBox,
+                    "softness"))
+
+        self.settingsTab.maxStretch_spinBox.valueChanged.connect(
+            partial(self.updateSpinBox,
+                    self.settingsTab.maxStretch_spinBox,
+                    "maxstretch"))
+
+        self.settingsTab.maxSquash_spinBox.valueChanged.connect(
+            partial(self.updateSpinBox,
+                    self.settingsTab.maxSquash_spinBox,
+                    "maxsquash"))
 
         self.settingsTab.division_spinBox.valueChanged.connect(
             partial(self.updateSpinBox,

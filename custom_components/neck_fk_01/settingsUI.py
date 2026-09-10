@@ -23,36 +23,80 @@ class Ui_Form(object):
             | QtCore.Qt.AlignVCenter)
         self.formLayout.setObjectName("formLayout")
 
+        self.softness_label = QtWidgets.QLabel(self.groupBox)
+        self.softness_label.setObjectName("softness_label")
+        self.formLayout.setWidget(
+            0, QtWidgets.QFormLayout.LabelRole, self.softness_label)
+        self.softness_horizontalLayout = QtWidgets.QHBoxLayout()
+        self.softness_slider = QtWidgets.QSlider(self.groupBox)
+        self.softness_slider.setMinimumSize(QtCore.QSize(0, 15))
+        self.softness_slider.setMaximum(100)
+        self.softness_slider.setOrientation(QtCore.Qt.Horizontal)
+        self.softness_slider.setObjectName("softness_slider")
+        self.softness_horizontalLayout.addWidget(self.softness_slider)
+        self.softness_spinBox = QtWidgets.QSpinBox(self.groupBox)
+        self.softness_spinBox.setMaximum(100)
+        self.softness_spinBox.setObjectName("softness_spinBox")
+        self.softness_horizontalLayout.addWidget(self.softness_spinBox)
+        self.formLayout.setLayout(
+            0, QtWidgets.QFormLayout.FieldRole,
+            self.softness_horizontalLayout)
+
+        self.maxStretch_label = QtWidgets.QLabel(self.groupBox)
+        self.maxStretch_label.setObjectName("maxStretch_label")
+        self.formLayout.setWidget(
+            1, QtWidgets.QFormLayout.LabelRole, self.maxStretch_label)
+        self.maxStretch_spinBox = QtWidgets.QDoubleSpinBox(self.groupBox)
+        self.maxStretch_spinBox.setMinimum(1.0)
+        self.maxStretch_spinBox.setSingleStep(0.1)
+        self.maxStretch_spinBox.setProperty("value", 1.5)
+        self.maxStretch_spinBox.setObjectName("maxStretch_spinBox")
+        self.formLayout.setWidget(
+            1, QtWidgets.QFormLayout.FieldRole, self.maxStretch_spinBox)
+
+        self.maxSquash_label = QtWidgets.QLabel(self.groupBox)
+        self.maxSquash_label.setObjectName("maxSquash_label")
+        self.formLayout.setWidget(
+            2, QtWidgets.QFormLayout.LabelRole, self.maxSquash_label)
+        self.maxSquash_spinBox = QtWidgets.QDoubleSpinBox(self.groupBox)
+        self.maxSquash_spinBox.setMinimum(0.1)
+        self.maxSquash_spinBox.setMaximum(1.0)
+        self.maxSquash_spinBox.setSingleStep(0.1)
+        self.maxSquash_spinBox.setProperty("value", 0.5)
+        self.maxSquash_spinBox.setObjectName("maxSquash_spinBox")
+        self.formLayout.setWidget(
+            2, QtWidgets.QFormLayout.FieldRole, self.maxSquash_spinBox)
+
         self.divisions_label = QtWidgets.QLabel(self.groupBox)
         self.divisions_label.setObjectName("divisions_label")
         self.formLayout.setWidget(
-            0, QtWidgets.QFormLayout.LabelRole, self.divisions_label)
+            3, QtWidgets.QFormLayout.LabelRole, self.divisions_label)
         self.division_spinBox = QtWidgets.QSpinBox(self.groupBox)
         self.division_spinBox.setMinimum(3)
         self.division_spinBox.setProperty("value", 5)
         self.division_spinBox.setObjectName("division_spinBox")
         self.formLayout.setWidget(
-            0, QtWidgets.QFormLayout.FieldRole, self.division_spinBox)
+            3, QtWidgets.QFormLayout.FieldRole, self.division_spinBox)
 
         self.tangentControls_label = QtWidgets.QLabel(self.groupBox)
         self.tangentControls_label.setObjectName("tangentControls_label")
         self.formLayout.setWidget(
-            1, QtWidgets.QFormLayout.LabelRole, self.tangentControls_label)
+            4, QtWidgets.QFormLayout.LabelRole, self.tangentControls_label)
         self.tangentControls_checkBox = QtWidgets.QCheckBox(self.groupBox)
         self.tangentControls_checkBox.setText("")
         self.tangentControls_checkBox.setObjectName("tangentControls_checkBox")
         self.formLayout.setWidget(
-            1, QtWidgets.QFormLayout.FieldRole, self.tangentControls_checkBox)
+            4, QtWidgets.QFormLayout.FieldRole, self.tangentControls_checkBox)
 
         self.IKWorldOri_label = QtWidgets.QLabel(self.groupBox)
         self.IKWorldOri_label.setObjectName("IKWorldOri_label")
         self.formLayout.setWidget(
-            2, QtWidgets.QFormLayout.LabelRole, self.IKWorldOri_label)
+            5, QtWidgets.QFormLayout.LabelRole, self.IKWorldOri_label)
         self.IKWorldOri_checkBox = QtWidgets.QCheckBox(self.groupBox)
         self.IKWorldOri_checkBox.setText("")
         self.IKWorldOri_checkBox.setObjectName("IKWorldOri_checkBox")
         self.formLayout.setWidget(
-            2, QtWidgets.QFormLayout.FieldRole, self.IKWorldOri_checkBox)
+            5, QtWidgets.QFormLayout.FieldRole, self.IKWorldOri_checkBox)
 
         self.verticalLayout.addLayout(self.formLayout)
         self.squashStretchProfile_pushButton = QtWidgets.QPushButton(
@@ -176,10 +220,24 @@ class Ui_Form(object):
         self.gridLayout.addWidget(self.headRefArray_groupBox, 2, 0, 1, 1)
 
         self.retranslateUi(Form)
+        QtCore.QObject.connect(
+            self.softness_slider,
+            QtCore.SIGNAL("sliderMoved(int)"),
+            self.softness_spinBox.setValue)
+        QtCore.QObject.connect(
+            self.softness_spinBox,
+            QtCore.SIGNAL("valueChanged(int)"),
+            self.softness_slider.setValue)
         QtCore.QMetaObject.connectSlotsByName(Form)
 
     def retranslateUi(self, Form):
         Form.setWindowTitle(gqt.fakeTranslate("Form", "Form", None, -1))
+        self.softness_label.setText(
+            gqt.fakeTranslate("Form", "Softness", None, -1))
+        self.maxStretch_label.setText(
+            gqt.fakeTranslate("Form", "Max Stretch", None, -1))
+        self.maxSquash_label.setText(
+            gqt.fakeTranslate("Form", "Max Squash", None, -1))
         self.divisions_label.setText(
             gqt.fakeTranslate("Form", "Divisions", None, -1))
         self.tangentControls_label.setText(
@@ -187,8 +245,7 @@ class Ui_Form(object):
         self.IKWorldOri_checkBox.setToolTip(
             gqt.fakeTranslate(
                 "Form",
-                "If checked, the IK read-out control will be aligned to "
-                "world space",
+                "If checked, the IK control will be aligned to world space",
                 None, -1))
         self.IKWorldOri_label.setText(
             gqt.fakeTranslate("Form", "IK Ctl World Ori", None, -1))
