@@ -1,32 +1,30 @@
 """Component Ribbon 01 module.
 
-A ribbon / surface rig - the antCGI "Rigging In Maya - Part 18 - Ribbons"
-method, with the follicles swapped for a single ``uvPin`` node.
+A ribbon / surface rig - the classic follicle-style method (antCGI
+"Rigging In Maya - Part 18 - Ribbons"), using ``pointOnSurfaceInfo`` +
+``fourByFourMatrix`` (the mGear "rivet" pattern) for the surface attach.
 
 Pipeline
 --------
-1. A NURBS plane is laid along the guide (U along the length, V across the
-   width), one U span per FK segment, then rebuilt to degree 3 in U /
-   degree 1 in V, 0-1 parameter range.
-2. The surface is skinned to a chain of **bind joints**, one per FK
-   controller. Each FK controller drives its bind joint; a middle
-   controller auto-follows its neighbours (``Mid Follow`` attribute).
-3. A single ``uvPin`` node drives ``jntNb`` **pin transforms** from fixed
-   UVs (evenly spaced U, V = 0.5). Each pin carries one deform joint, plus
-   an optional tweak control.
-4. Twisting the end controller around the length axis twists the surface,
-   and the pins inherit it for free. A distance-driven factor gives an
-   optional squash & stretch on the cross-section (``Volume`` attribute).
+1. A NURBS plane is laid along the guide, rebuilt to degree 3 along the
+   length (U) / degree 1 across the width (V), one U span per FK segment,
+   0-1 parameter range.
+2. A real, parented FK chain drives one hidden **bind joint** per control.
+   The surface is skinned to those bind joints.
+3. ``jntNb`` **pin transforms** are attached to the surface at evenly
+   spaced U values (V = 0.5) via ``pointOnSurfaceInfo`` -> matrix ->
+   ``offsetParentMatrix``. Each pin carries a deform joint, plus an
+   optional tweak control.
+4. Extra animation features on the UI host:
+   * **Twist Start / Twist End** - roll distributed along the length,
+     applied to the bind joints so the skin twists and the pins inherit.
+   * **Roll** - uniform roll of the whole ribbon.
+   * **Volume** + **Squash / Stretch clamps** - distance-driven volume
+     preservation on the deform joints.
 
-Settings
---------
-* **FK Controllers** (``fkNb``) - number of FK controls / bind joints.
-* **Deform Joints** (``jntNb``) - number of pins / deform joints.
-* **Tweak Controls** - add a tweak control on every pin.
-
-No cycle: fk_ctl -> skinCluster -> surface -> uvPin -> pin -> joint, one
-direction. The squash driver is the distance between the FK-driven bind
-joints, never the deformed surface.
+No cycle: fk_ctl -> skinCluster -> surface -> pointOnSurfaceInfo -> pin ->
+joint, one direction. The volume driver is the distance between the
+FK-driven bind joints, never the deformed surface.
 """
 
 import mgear.pymaya as pm
@@ -34,7 +32,7 @@ from mgear.pymaya import datatypes
 
 from mgear.shifter import component
 
-from mgear.core import node, vector, curve
+from mgear.core import node, vector, curve, applyop
 from mgear.core import attribute, transform, primitive
 
 #############################################
@@ -56,13 +54,15 @@ class Component(component.Main):
 
         self.fk_number = max(2, self.settings["fkNb"])
         self.jnt_number = max(2, self.settings["jntNb"])
-        self.up_axis = "y"
+        self.tweak = self.settings["tweakControls"]
 
         # sample positions along the guide, evenly by arc length ----
         gpos = [datatypes.Vector(p) for p in self.guide.apos]
         self.length = 0.0
         for i in range(len(gpos) - 1):
             self.length += vector.getDistance(gpos[i], gpos[i + 1])
+        if self.length < 1e-4:
+            self.length = 1.0
 
         tmp_crv = curve.addCurve(
             self.root, self.getName("tmpSample_crv"), gpos, False, 3
@@ -81,16 +81,17 @@ class Component(component.Main):
             self.fk_pos + [extra], self.normal, self.negate, axis="xy"
         )
 
-        # base space-switch null (target of the ikrefarray connector)
+        # base space-switch null -------------------------
         self.ik_cns = primitive.addTransform(
             self.root, self.getName("ik_cns"), self.fk_t[0]
         )
 
-        # FK controllers + bind joints -------------------
+        # FK controllers + bind joints ------------------
+        # A plain parented FK chain. Nothing fancy.
         self.fk_npo = []
         self.fk_ctl = []
-        self.mid_npo = []
         self.bind_jnt = []
+        self.roll_ref = []
         self.previousTag = self.parentCtlTag
         parent = self.ik_cns
         for i in range(self.fk_number):
@@ -100,20 +101,15 @@ class Component(component.Main):
             else:
                 dist = vector.getDistance(self.fk_pos[i - 1], self.fk_pos[i])
 
-            # a middle FK control is not parented under the previous one, so
-            # it can be driven by an auto-follow constraint (see addOperators)
-            is_middle = 0 < i < self.fk_number - 1
-            ctl_parent = self.ik_cns if is_middle else parent
-
             fk_npo = primitive.addTransform(
-                ctl_parent, self.getName("fk%s_npo" % i), t
+                parent, self.getName("fk%s_npo" % i), t
             )
             fk_ctl = self.addCtl(
                 fk_npo,
                 "fk%s_ctl" % i,
                 t,
                 self.color_fk,
-                "square" if is_middle else "cube",
+                "cube",
                 w=dist,
                 h=self.size * 0.1,
                 d=self.size * 0.1,
@@ -123,26 +119,30 @@ class Component(component.Main):
             attribute.setKeyableAttributes(fk_ctl)
             attribute.setInvertMirror(fk_ctl, ["tx", "ty", "tz"])
 
-            # bind joint the surface is skinned to (hidden, never drawn)
+            # roll pivot: a child that will receive the twist rotation so
+            # the fk_ctl channels stay clean
+            roll = primitive.addTransform(
+                fk_ctl, self.getName("roll%s" % i), t
+            )
             bind_jnt = primitive.addJoint(
-                fk_ctl, self.getName("bind%s_jnt" % i), t, vis=False
+                roll, self.getName("bind%s_jnt" % i), t, vis=False
             )
             bind_jnt.attr("drawStyle").set(2)
 
             self.fk_npo.append(fk_npo)
             self.fk_ctl.append(fk_ctl)
             self.bind_jnt.append(bind_jnt)
-            if is_middle:
-                self.mid_npo.append((i, fk_npo))
+            self.roll_ref.append(roll)
+
             self.previousTag = fk_ctl
-            if not is_middle:
-                parent = fk_ctl
+            parent = fk_ctl
 
         # Ribbon surface --------------------------------
-        # ribbon_root is oriented so its local +X runs down the chain and its
-        # +Y is the surface normal. The nurbsPlane is created in its local
-        # X-Z plane (U along +X = length, V along +Z = width) and parented
-        # in, so it lines up with the guide whatever direction that points.
+        # ribbon_root is oriented on the guide. The surface is parented in
+        # with a zeroed local transform, then deformed only by the
+        # skinCluster. The pins are driven by world-space matrices into
+        # their offsetParentMatrix, so ribbon_root's transform never
+        # matters to them.
         srf_t = transform.getTransformLookingAt(
             self.fk_pos[0], self.fk_pos[-1], self.normal, "xy", self.negate
         )
@@ -155,18 +155,16 @@ class Component(component.Main):
         )
 
         width = self.size * 0.2
-        length = self.length if self.length > 1e-4 else 1.0
         self.surface = pm.nurbsPlane(
             name=self.getName("ribbon_srf"),
-            width=length,
-            lengthRatio=width / length,
+            width=self.length,
+            lengthRatio=width / self.length,
             degree=3,
             patchesU=max(1, self.fk_number - 1),
             patchesV=1,
             axis=[0, 1, 0],
             constructionHistory=False,
         )[0]
-        # degree 1 across the width, 0-1 parameter range on both directions
         pm.rebuildSurface(
             self.surface,
             constructionHistory=False,
@@ -179,6 +177,8 @@ class Component(component.Main):
             spansV=1,
             direction=2,
         )
+
+        # parent the plane onto the oriented ribbon_root and zero its local
         pm.parent(self.surface, self.ribbon_root, relative=True)
         for at in ("tx", "ty", "tz", "rx", "ry", "rz"):
             pm.setAttr("{}.{}".format(self.surface, at), 0)
@@ -202,65 +202,27 @@ class Component(component.Main):
             dropoffRate=4,
         )
 
-        # uvPin attach + deform joints -----------------
-        # One uvPin drives all the pin transforms from fixed UVs. The
-        # skinCluster deforms the surface and the pins follow.
+        # Pin transforms + deform joints ---------------
         self.pin_grp = primitive.addTransform(
-            self.ribbon_root, self.getName("pins"),
-            transform.getTransform(self.ribbon_root),
+            self.ribbon_root, self.getName("pins")
         )
-        pm.setAttr(self.pin_grp + ".inheritsTransform", False)
-        self.pin_tr = []
-        self.pin_npo = []
+        self.pin = []
         self.tweak_ctl = []
         self.attach = []
-        self.tweak = self.settings["tweakControls"]
+        self.pin_u = [
+            i / (self.jnt_number - 1.0) for i in range(self.jnt_number)
+        ]
         self.previousTweakTag = self.parentCtlTag
 
-        srf_shape = self.surface.getShape()
-        # the skinCluster leaves an intermediate "...Orig" shape - use it as
-        # the undeformed reference for the pin (falls back to .local)
-        orig_plug = srf_shape + ".local"
-        for sh in self.surface.getShapes():
-            if pm.getAttr(sh + ".intermediateObject"):
-                orig_plug = sh + ".local"
-                break
-
-        self.uvpin = pm.createNode(
-            "uvPin", name=self.getName("ribbon_uvPin")
-        )
-        # X = U tangent (down the length), Y = surface normal, Z = width
-        pm.setAttr(self.uvpin + ".tangentAxis", 0)
-        pm.setAttr(self.uvpin + ".normalAxis", 1)
-        pm.connectAttr(
-            srf_shape + ".worldSpace[0]", self.uvpin + ".deformedGeometry"
-        )
-        pm.connectAttr(orig_plug, self.uvpin + ".originalGeometry")
-
         for i in range(self.jnt_number):
-            frac = i / (self.jnt_number - 1.0)
-            pm.setAttr(self.uvpin + ".coordinate[%s].coordinateU" % i, frac)
-            pm.setAttr(self.uvpin + ".coordinate[%s].coordinateV" % i, 0.5)
-
-            pin_npo = primitive.addTransform(
-                self.pin_grp, self.getName("pin%s_npo" % i)
+            pin = primitive.addTransform(
+                self.pin_grp, self.getName("pin%s" % i)
             )
-            pin_tr = primitive.addTransform(
-                pin_npo, self.getName("pin%s" % i)
-            )
-            dm_pin = node.createDecomposeMatrixNode(
-                self.uvpin + ".outputMatrix[%s]" % i
-            )
-            pm.connectAttr(dm_pin + ".outputTranslate", pin_tr + ".t")
-            pm.connectAttr(dm_pin + ".outputRotate", pin_tr + ".r")
+            self.pin.append(pin)
 
-            self.pin_npo.append(pin_npo)
-            self.pin_tr.append(pin_tr)
-
-            # optional tweak control
             if self.tweak:
                 tw_npo = primitive.addTransform(
-                    pin_tr, self.getName("tweak%s_npo" % i)
+                    pin, self.getName("tweak%s_npo" % i)
                 )
                 tw_ctl = self.addCtl(
                     tw_npo,
@@ -276,13 +238,12 @@ class Component(component.Main):
                 attribute.setKeyableAttributes(tw_ctl)
                 self.tweak_ctl.append(tw_ctl)
                 self.previousTweakTag = tw_ctl
-                jnt_parent = tw_ctl
+                att_parent = tw_ctl
             else:
-                jnt_parent = pin_tr
+                att_parent = pin
 
             att = primitive.addTransform(
-                jnt_parent, self.getName("attach%s" % i),
-                transform.getTransform(jnt_parent),
+                att_parent, self.getName("attach%s" % i)
             )
             self.attach.append(att)
 
@@ -299,17 +260,30 @@ class Component(component.Main):
         self.surfaceVis_att = self.addAnimParam(
             "surface_vis", "Surface Vis", "bool", False
         )
-        self.volume_att = self.addAnimParam(
-            "volume", "Volume", "double", 1, 0, 1
-        )
-        if self.fk_number > 2:
-            self.midFollow_att = self.addAnimParam(
-                "mid_follow", "Mid Follow", "double", 1, 0, 1
-            )
-        if getattr(self, "tweak_ctl", None):
+        if self.tweak_ctl:
             self.tweakVis_att = self.addAnimParam(
                 "tweak_vis", "Tweak Vis", "bool", False
             )
+
+        # twist / roll
+        self.twistStart_att = self.addAnimParam(
+            "twist_start", "Twist Start", "double", 0
+        )
+        self.twistEnd_att = self.addAnimParam(
+            "twist_end", "Twist End", "double", 0
+        )
+        self.roll_att = self.addAnimParam("roll", "Roll", "double", 0)
+
+        # volume / squash & stretch
+        self.volume_att = self.addAnimParam(
+            "volume", "Volume", "double", 1, 0, 1
+        )
+        self.maxStretch_att = self.addAnimParam(
+            "max_stretch", "Max Stretch", "double", 1.5, 1
+        )
+        self.maxSquash_att = self.addAnimParam(
+            "max_squash", "Max Squash", "double", 0.5, 0, 1
+        )
 
         # base space switch
         if self.settings["ikrefarray"]:
@@ -327,62 +301,116 @@ class Component(component.Main):
     def addOperators(self):
         """Create operators and set the relations for the component rig."""
 
-        dm_scl = node.createDecomposeMatrixNode(
+        srf_shape = self.surface.getShape()
+        root_dm = node.createDecomposeMatrixNode(
             self.root.attr("worldMatrix[0]")
         )
 
-        # --- middle FK controls auto-follow their neighbours ----------
-        for idx, npo in self.mid_npo:
-            prev_ctl = self.fk_ctl[idx - 1]
-            next_ctl = self.fk_ctl[idx + 1]
-            cns = pm.parentConstraint(
-                prev_ctl, next_ctl, npo, maintainOffset=True
+        # --- twist / roll on the bind-joint roll references ----------
+        # The length axis is local X of the chain transforms. Each roll
+        # reference gets twist_start at u=0 blended to twist_end at u=1,
+        # plus the uniform Roll.
+        for i, roll in enumerate(self.roll_ref):
+            u = i / (self.fk_number - 1.0)
+            # blendColors: blender=1 -> color1, blender=0 -> color2.
+            # u=0 must give twist_start, u=1 must give twist_end.
+            blend = node.createBlendNode(
+                [self.twistEnd_att], [self.twistStart_att], u
             )
-            cns.interpType.set(2)  # shortest
-            w = pm.parentConstraint(cns, query=True, weightAliasList=True)
-            for wa in w:
-                pm.connectAttr(self.midFollow_att, "{}.{}".format(cns, wa))
+            add = node.createPlusMinusAverage1D(
+                [blend + ".outputR", self.roll_att]
+            )
+            pm.connectAttr(add + ".output1D", roll + ".rotateX")
 
-        # --- squash & stretch volume ------------------------------
-        # length driver = distance between the first and last bind joints
-        # (FK driven, so no cycle with the squash output)
+        # --- surface attach via pointOnSurfaceInfo -------------------
+        for i, pin in enumerate(self.pin):
+            u = self.pin_u[i]
+
+            posi = pm.createNode(
+                "pointOnSurfaceInfo",
+                name=self.getName("pin%s_posi" % i),
+            )
+            posi.attr("turnOnPercentage").set(False)
+            posi.attr("parameterU").set(u)
+            posi.attr("parameterV").set(0.5)
+            pm.connectAttr(
+                srf_shape.attr("worldSpace[0]"), posi.attr("inputSurface")
+            )
+
+            mtx = pm.createNode(
+                "fourByFourMatrix", name=self.getName("pin%s_m4x4" % i)
+            )
+            # X = U tangent (length)
+            pm.connectAttr(posi.attr("normalizedTangentUX"), mtx.attr("in00"))
+            pm.connectAttr(posi.attr("normalizedTangentUY"), mtx.attr("in01"))
+            pm.connectAttr(posi.attr("normalizedTangentUZ"), mtx.attr("in02"))
+            # Y = surface normal
+            pm.connectAttr(posi.attr("normalizedNormalX"), mtx.attr("in10"))
+            pm.connectAttr(posi.attr("normalizedNormalY"), mtx.attr("in11"))
+            pm.connectAttr(posi.attr("normalizedNormalZ"), mtx.attr("in12"))
+            # Z = V tangent (width)
+            pm.connectAttr(posi.attr("normalizedTangentVX"), mtx.attr("in20"))
+            pm.connectAttr(posi.attr("normalizedTangentVY"), mtx.attr("in21"))
+            pm.connectAttr(posi.attr("normalizedTangentVZ"), mtx.attr("in22"))
+            # position
+            pm.connectAttr(posi.attr("positionX"), mtx.attr("in30"))
+            pm.connectAttr(posi.attr("positionY"), mtx.attr("in31"))
+            pm.connectAttr(posi.attr("positionZ"), mtx.attr("in32"))
+
+            # bring the world matrix into the pin's parent space, then
+            # split into translate / rotate (unambiguous - no reliance on
+            # offsetParentMatrix space or inheritsTransform).
+            mm = applyop.gear_mulmatrix_op(
+                mtx.attr("output"),
+                pin.attr("parentInverseMatrix[0]"),
+            )
+            dm = node.createDecomposeMatrixNode(mm + ".output")
+            pm.connectAttr(dm + ".outputTranslate", pin.attr("translate"))
+            pm.connectAttr(dm + ".outputRotate", pin.attr("rotate"))
+
+        # --- volume / squash & stretch ------------------------------
+        # driver = distance between first and last bind joints
         dist = node.createDistNode(self.bind_jnt[0], self.bind_jnt[-1])
         rest_len = pm.getAttr(dist + ".distance")
-        len_scaled = node.createDivNode(
-            dist + ".distance", dm_scl + ".outputScaleX"
+        # normalise out the global rig scale
+        cur_len = node.createDivNode(
+            dist + ".distance", root_dm + ".outputScaleX"
         )
-        # cross-section squash factor = sqrt(rest / current) for rough
-        # volume preservation, blended by the volume attribute
-        squash_ratio = node.createDivNode(rest_len, len_scaled + ".outputX")
-        squash_pow = pm.createNode("multiplyDivide")
-        pm.setAttr(squash_pow + ".operation", 3)  # power
-        pm.connectAttr(squash_ratio + ".outputX", squash_pow + ".input1X")
-        pm.setAttr(squash_pow + ".input2X", 0.5)
-        # volume 0 -> factor 1.0 (no squash), volume 1 -> factor sqrt(ratio)
+        ratio = node.createDivNode(cur_len + ".outputX", rest_len)
+        # clamp the stretch/squash range
+        clamp = node.createClampNode(
+            [ratio + ".outputX", 0, 0],
+            [self.maxSquash_att, 0, 0],
+            [self.maxStretch_att, 0, 0],
+        )
+        # cross-section factor = 1 / sqrt(len ratio) for volume preservation
+        inv = node.createDivNode(1.0, clamp + ".outputR")
+        vol_factor = node.createPowNode(inv + ".outputX", 0.5)
+        # blend towards 1.0 by the Volume attribute
         vol_blend = node.createBlendNode(
             [1.0, 1.0, 1.0],
-            [squash_pow + ".outputX"] * 3,
+            [vol_factor + ".outputX"] * 3,
             self.volume_att,
         )
 
         for att in self.attach:
-            # X follows the length (global scale only); Y and Z get the
-            # cross-section squash on top of the global scale
+            # X follows the global rig scale only (length); Y and Z also get
+            # the cross-section volume factor
             mul = node.createMulNode(
                 [
-                    dm_scl + ".outputScaleX",
-                    dm_scl + ".outputScaleY",
-                    dm_scl + ".outputScaleZ",
+                    root_dm + ".outputScaleX",
+                    root_dm + ".outputScaleY",
+                    root_dm + ".outputScaleZ",
                 ],
                 [1.0, vol_blend + ".outputR", vol_blend + ".outputG"],
             )
-            pm.connectAttr(mul + ".output", att.attr("s"))
+            pm.connectAttr(mul + ".output", att.attr("scale"))
 
-        # --- visibilities ----------------------------------------
+        # --- visibilities ------------------------------------------
         pm.connectAttr(
             self.surfaceVis_att, self.surface.attr("visibility")
         )
-        if getattr(self, "tweak_ctl", None):
+        if self.tweak_ctl:
             for ctl in self.tweak_ctl:
                 for shp in ctl.getShapes():
                     pm.connectAttr(
