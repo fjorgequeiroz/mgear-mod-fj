@@ -39,11 +39,14 @@ the FK chain and the IK control is:
 fk_ctl[-1].worldMatrix ──▶ gear_mulmatrix_op ──▶ decomposeMatrix ──▶ ik_cns.t / .r / .s
 ```
 
-It is strictly one-directional (FK → IK read-out). Because `ik_ctl` has every
-transform channel **locked and non-keyable**, nothing — animator, parent,
-constraint or reference array — can feed a transform from `ik_ctl` back into
-the FK chain. A dependency cycle is therefore impossible **by construction**,
-not merely avoided by careful ordering.
+It is strictly one-directional (FK → IK read-out). `ik_ctl` is a **pure leaf**:
+nothing in the rig reads its transform, so even if an animator moves it (its
+channels are non-keyable but shown greyed in the channel box, not hard
+locked) nothing happens to the neck or the joints. A dependency cycle through
+the IK control is therefore impossible **by construction**.
+
+> If you need the IK handle to actually drive the neck, that is `neck_ik_01`.
+> In `neck_fk_01` the IK control is passive by design.
 
 ### Stretchy-FK without a cycle
 

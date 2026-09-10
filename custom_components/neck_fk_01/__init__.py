@@ -10,8 +10,10 @@ visible read-out of that solve (they are downstream, non-master transforms).
 In ``neck_fk_01`` the dependency is reversed. The ``fk*_ctl`` chain is a real,
 parented FK hierarchy and is the only input. The ``ik_ctl`` is kept for
 familiarity and for anything that expects a neck "ik" handle, but it is a
-locked, non-keyable *output*: it is matrix driven by the last FK control so it
-always sits at the tip of the neck and follows the chain.
+non-keyable *output*: its parent (``ik_cns``) is matrix driven by the last FK
+control so it always sits at the tip of the neck and follows the chain. Its
+channels stay visible (greyed) in the channel box so it reads as a driven
+handle.
 
 Cyclic redundancy is avoided by construction:
 
@@ -19,7 +21,10 @@ Cyclic redundancy is avoided by construction:
   ``gear_intmatrix_op`` reading ``ik_ctl.worldMatrix``. Those operators are
   what made the IK control the master in ``neck_ik_01``.
 * ``ik_ctl`` never feeds back into anything the FK chain reads. The only
-  connection is ``fk_ctl[-1].worldMatrix -> ik_cns`` (one direction).
+  connection is ``fk_ctl[-1].worldMatrix -> ik_cns`` (one direction), and
+  ``ik_ctl`` itself is a pure leaf (its transform channels are made
+  non-keyable, still shown greyed in the channel box, so it reads as a
+  driven handle rather than an animatable control).
 * The squash and stretch writes only to the leaf ``scl_ref`` transforms.
   Those have no children, so scaling them moves no control. The live
   chain-length measurement can therefore read the ``fk_ctl`` world positions
@@ -147,10 +152,16 @@ class Component(component.Main):
             tp=self.previousCtlTag,
         )
         attribute.setRotOrder(self.ik_ctl, "ZXY")
-        # It is a visual read-out of the FK tip: lock every transform channel
-        # (but not visibility) so nothing (animator, ref array, parent) can
-        # push it back into the rig and create a cycle.
-        attribute.lockAttribute(
+        # This control is a visual read-out of the FK tip, not an input. Its
+        # parent (ik_cns) is matrix driven by the last FK control, so the
+        # control follows the neck tip with its own channels at zero and
+        # nothing downstream reads it. Make the transform channels
+        # non-keyable but still shown (greyed) in the channel box, so
+        # animators can see the values and see that it is not animatable.
+        # They are deliberately not locked: a locked channel disappears from
+        # the channel box on some Maya versions, and since the control is a
+        # pure leaf there is no cycle to guard against.
+        attribute.setNotKeyableAttributes(
             self.ik_ctl,
             ["tx", "ty", "tz", "rx", "ry", "rz", "sx", "sy", "sz"],
         )
