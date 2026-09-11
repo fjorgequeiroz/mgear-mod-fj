@@ -684,7 +684,9 @@ class Component(component.Main):
         if self.negate:
             self.uplegTangentA_npo.rz.set(180)
             self.uplegTangentA_npo.sz.set(-1)
-        attribute.setKeyableAttributes(self.uplegTangentA_ctl, self.t_params)
+        attribute.setKeyableAttributes(
+            self.uplegTangentA_ctl, self.t_params + ("rz",)
+        )
 
         t = transform.getInterpolateTransformMatrix(
             self.fk_ctl[0], self.tws1_loc, 0.7
@@ -705,7 +707,9 @@ class Component(component.Main):
         if self.negate:
             self.uplegTangentB_npo.rz.set(180)
             self.uplegTangentB_npo.sz.set(-1)
-        attribute.setKeyableAttributes(self.uplegTangentB_ctl, self.t_params)
+        attribute.setKeyableAttributes(
+            self.uplegTangentB_ctl, self.t_params + ("rz",)
+        )
 
         # midleg segment: knee -> ankle
         t = transform.getInterpolateTransformMatrix(
@@ -727,7 +731,9 @@ class Component(component.Main):
         if self.negate:
             self.midlegTangentA_npo.rz.set(180)
             self.midlegTangentA_npo.sz.set(-1)
-        attribute.setKeyableAttributes(self.midlegTangentA_ctl, self.t_params)
+        attribute.setKeyableAttributes(
+            self.midlegTangentA_ctl, self.t_params + ("rz",)
+        )
 
         t = transform.getInterpolateTransformMatrix(
             self.knee_ctl, self.tws2_loc, 0.7
@@ -748,7 +754,9 @@ class Component(component.Main):
         if self.negate:
             self.midlegTangentB_npo.rz.set(180)
             self.midlegTangentB_npo.sz.set(-1)
-        attribute.setKeyableAttributes(self.midlegTangentB_ctl, self.t_params)
+        attribute.setKeyableAttributes(
+            self.midlegTangentB_ctl, self.t_params + ("rz",)
+        )
 
         # lowleg segment: ankle -> foot (end)
         t = transform.getInterpolateTransformMatrix(
@@ -770,7 +778,9 @@ class Component(component.Main):
         if self.negate:
             self.lowlegTangentA_npo.rz.set(180)
             self.lowlegTangentA_npo.sz.set(-1)
-        attribute.setKeyableAttributes(self.lowlegTangentA_ctl, self.t_params)
+        attribute.setKeyableAttributes(
+            self.lowlegTangentA_ctl, self.t_params + ("rz",)
+        )
 
         t = transform.getInterpolateTransformMatrix(
             self.ankle_ctl, self.tws3_loc, 0.7
@@ -791,7 +801,9 @@ class Component(component.Main):
         if self.negate:
             self.lowlegTangentB_loc.rz.set(180)
             self.lowlegTangentB_loc.sz.set(-1)
-        attribute.setKeyableAttributes(self.lowlegTangentB_ctl, self.t_params)
+        attribute.setKeyableAttributes(
+            self.lowlegTangentB_ctl, self.t_params + ("rz",)
+        )
 
         # Divisions ----------------------------------------
         # We have at least one division at the start, the end and one for
@@ -1522,32 +1534,12 @@ class Component(component.Main):
         self.lowlegTangentA_ctl.attr("tx").set(0)
         self.lowlegTangentB_ctl.attr("tx").set(0)
 
-        # aim the tangents so their local Z roughly follows the segment
-        applyop.aimCns(
-            self.uplegTangentA_npo,
-            self.knee_ctl,
-            axis="zy",
-            wupType=2,
-            wupVector=[0, 1, 0],
-            wupObject=self.fk_ctl[0],
-            maintainOffset=False,
-        )
-        applyop.aimCns(
-            self.lowlegTangentB_loc,
-            self.ankle_ctl,
-            axis="zy",
-            wupType=2,
-            wupVector=[0, 1, 0],
-            wupObject=self.ankle_ctl,
-            maintainOffset=False,
-        )
-
         # upleg: fk0 -> uplegTangentA -> uplegTangentB -> knee
         self.uplegIkh, self.uplegTmpCrv = applyop.splineIK(
             self.getName("uplegTwist"),
             self.uplegTwistChain,
             parent=self.root,
-            cParent=self.uplegTwistChain[0],
+            cParent=self.root,
         )
         applyop.gear_curvecns_op(
             self.uplegTmpCrv,
@@ -1567,7 +1559,7 @@ class Component(component.Main):
             self.getName("midlegTwist"),
             self.midlegTwistChain,
             parent=self.root,
-            cParent=self.midlegTwistChain[0],
+            cParent=self.root,
         )
         applyop.gear_curvecns_op(
             self.midlegTmpCrv,
@@ -1587,7 +1579,7 @@ class Component(component.Main):
             self.getName("lowlegTwist"),
             self.lowlegTwistChain,
             parent=self.root,
-            cParent=self.lowlegTwistChain[0],
+            cParent=self.root,
         )
         applyop.gear_curvecns_op(
             self.lowlegTmpCrv,
