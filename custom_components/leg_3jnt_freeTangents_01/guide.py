@@ -76,7 +76,8 @@ class Guide(guide.ComponentGuide):
         self.pFull3BoneIK = self.addParam("full3BonesIK", "double", 1, 0, 1)
         self.pIkRefArray = self.addParam("ikrefarray", "string", "")
         self.pUpvRefArray = self.addParam("upvrefarray", "string", "")
-        self.pPinRefArray = self.addParam("pinrefarray", "string", "")
+        self.pKneeRefArray = self.addParam("kneerefarray", "string", "")
+        self.pAnkleRefArray = self.addParam("anklerefarray", "string", "")
         self.pMaxStretch = self.addParam("maxstretch", "double", 1.5, 1, None)
 
         self.pIKSolver = self.addEnumParam(
@@ -197,9 +198,12 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         upvRefArrayItems = self.root.attr("upvrefarray").get().split(",")
         for item in upvRefArrayItems:
             self.settingsTab.upvRefArray_listWidget.addItem(item)
-        pinRefArrayItems = self.root.attr("pinrefarray").get().split(",")
-        for item in pinRefArrayItems:
-            self.settingsTab.pinRefArray_listWidget.addItem(item)
+        kneeRefArrayItems = self.root.attr("kneerefarray").get().split(",")
+        for item in kneeRefArrayItems:
+            self.settingsTab.kneeRefArray_listWidget.addItem(item)
+        ankleRefArrayItems = self.root.attr("anklerefarray").get().split(",")
+        for item in ankleRefArrayItems:
+            self.settingsTab.ankleRefArray_listWidget.addItem(item)
 
     def create_componentLayout(self):
 
@@ -327,32 +331,53 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
 
         self.settingsTab.upvRefArray_listWidget.installEventFilter(self)
 
-        self.settingsTab.pinRefArrayAdd_pushButton.clicked.connect(
+        self.settingsTab.kneeRefArrayAdd_pushButton.clicked.connect(
             partial(
                 self.addItem2listWidget,
-                self.settingsTab.pinRefArray_listWidget,
-                "pinrefarray",
+                self.settingsTab.kneeRefArray_listWidget,
+                "kneerefarray",
             )
         )
-
-        self.settingsTab.pinRefArrayRemove_pushButton.clicked.connect(
+        self.settingsTab.kneeRefArrayRemove_pushButton.clicked.connect(
             partial(
                 self.removeSelectedFromListWidget,
-                self.settingsTab.pinRefArray_listWidget,
-                "pinrefarray",
+                self.settingsTab.kneeRefArray_listWidget,
+                "kneerefarray",
             )
         )
-
-        self.settingsTab.pinRefArray_copyRef_pushButton.clicked.connect(
+        self.settingsTab.kneeRefArray_copyRef_pushButton.clicked.connect(
             partial(
                 self.copyFromListWidget,
                 self.settingsTab.ikRefArray_listWidget,
-                self.settingsTab.pinRefArray_listWidget,
-                "pinrefarray",
+                self.settingsTab.kneeRefArray_listWidget,
+                "kneerefarray",
             )
         )
+        self.settingsTab.kneeRefArray_listWidget.installEventFilter(self)
 
-        self.settingsTab.pinRefArray_listWidget.installEventFilter(self)
+        self.settingsTab.ankleRefArrayAdd_pushButton.clicked.connect(
+            partial(
+                self.addItem2listWidget,
+                self.settingsTab.ankleRefArray_listWidget,
+                "anklerefarray",
+            )
+        )
+        self.settingsTab.ankleRefArrayRemove_pushButton.clicked.connect(
+            partial(
+                self.removeSelectedFromListWidget,
+                self.settingsTab.ankleRefArray_listWidget,
+                "anklerefarray",
+            )
+        )
+        self.settingsTab.ankleRefArray_copyRef_pushButton.clicked.connect(
+            partial(
+                self.copyFromListWidget,
+                self.settingsTab.ikRefArray_listWidget,
+                self.settingsTab.ankleRefArray_listWidget,
+                "anklerefarray",
+            )
+        )
+        self.settingsTab.ankleRefArray_listWidget.installEventFilter(self)
 
     def eventFilter(self, sender, event):
         if event.type() == QtCore.QEvent.ChildRemoved:
@@ -360,8 +385,10 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
                 self.updateListAttr(sender, "ikrefarray")
             elif sender == self.settingsTab.upvRefArray_listWidget:
                 self.updateListAttr(sender, "upvrefarray")
-            elif sender == self.settingsTab.pinRefArray_listWidget:
-                self.updateListAttr(sender, "pinrefarray")
+            elif sender == self.settingsTab.kneeRefArray_listWidget:
+                self.updateListAttr(sender, "kneerefarray")
+            elif sender == self.settingsTab.ankleRefArray_listWidget:
+                self.updateListAttr(sender, "anklerefarray")
             return True
         else:
             return QtWidgets.QDialog.eventFilter(self, sender, event)

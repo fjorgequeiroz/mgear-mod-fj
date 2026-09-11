@@ -211,60 +211,52 @@ class Ui_Form(object):
         self.gridLayout_4.addLayout(self.upvRefArray_horizontalLayout, 0, 0, 1, 1)
         self.verticalLayout_2.addWidget(self.upvRefArray_groupBox)
 
-        # --- Pin (knee / ankle) Reference Array ---------------------------
-        self.pinRefArray_groupBox = QtWidgets.QGroupBox(Form)
-        self.pinRefArray_groupBox.setObjectName("pinRefArray_groupBox")
-        self.gridLayout_5 = QtWidgets.QGridLayout(self.pinRefArray_groupBox)
-        self.gridLayout_5.setObjectName("gridLayout_5")
-        self.pinRefArray_horizontalLayout = QtWidgets.QHBoxLayout()
-        self.pinRefArray_horizontalLayout.setObjectName(
-            "pinRefArray_horizontalLayout")
-        self.pinRefArray_verticalLayout_1 = QtWidgets.QVBoxLayout()
-        self.pinRefArray_verticalLayout_1.setObjectName(
-            "pinRefArray_verticalLayout_1")
-        self.pinRefArray_listWidget = QtWidgets.QListWidget(
-            self.pinRefArray_groupBox)
-        self.pinRefArray_listWidget.setDragDropOverwriteMode(True)
-        self.pinRefArray_listWidget.setDragDropMode(
-            QtWidgets.QAbstractItemView.InternalMove)
-        self.pinRefArray_listWidget.setDefaultDropAction(QtCore.Qt.MoveAction)
-        self.pinRefArray_listWidget.setAlternatingRowColors(True)
-        self.pinRefArray_listWidget.setSelectionMode(
-            QtWidgets.QAbstractItemView.ExtendedSelection)
-        self.pinRefArray_listWidget.setSelectionRectVisible(False)
-        self.pinRefArray_listWidget.setObjectName("pinRefArray_listWidget")
-        self.pinRefArray_verticalLayout_1.addWidget(self.pinRefArray_listWidget)
-        self.pinRefArray_copyRef_pushButton = QtWidgets.QPushButton(
-            self.pinRefArray_groupBox)
-        self.pinRefArray_copyRef_pushButton.setObjectName(
-            "pinRefArray_copyRef_pushButton")
-        self.pinRefArray_verticalLayout_1.addWidget(
-            self.pinRefArray_copyRef_pushButton)
-        self.pinRefArray_horizontalLayout.addLayout(
-            self.pinRefArray_verticalLayout_1)
-        self.pinRefArray_verticalLayout_2 = QtWidgets.QVBoxLayout()
-        self.pinRefArray_verticalLayout_2.setObjectName(
-            "pinRefArray_verticalLayout_2")
-        self.pinRefArrayAdd_pushButton = QtWidgets.QPushButton(
-            self.pinRefArray_groupBox)
-        self.pinRefArrayAdd_pushButton.setObjectName("pinRefArrayAdd_pushButton")
-        self.pinRefArray_verticalLayout_2.addWidget(
-            self.pinRefArrayAdd_pushButton)
-        self.pinRefArrayRemove_pushButton = QtWidgets.QPushButton(
-            self.pinRefArray_groupBox)
-        self.pinRefArrayRemove_pushButton.setObjectName(
-            "pinRefArrayRemove_pushButton")
-        self.pinRefArray_verticalLayout_2.addWidget(
-            self.pinRefArrayRemove_pushButton)
-        spacerItem2 = QtWidgets.QSpacerItem(
-            20, 40, QtWidgets.QSizePolicy.Minimum,
-            QtWidgets.QSizePolicy.Expanding)
-        self.pinRefArray_verticalLayout_2.addItem(spacerItem2)
-        self.pinRefArray_horizontalLayout.addLayout(
-            self.pinRefArray_verticalLayout_2)
-        self.gridLayout_5.addLayout(
-            self.pinRefArray_horizontalLayout, 0, 0, 1, 1)
-        self.verticalLayout_2.addWidget(self.pinRefArray_groupBox)
+        # --- Knee / Ankle Pin Reference Arrays -------------------------
+        def _mk_ref_group(prefix):
+            gb = QtWidgets.QGroupBox(Form)
+            gb.setObjectName(prefix + "_groupBox")
+            gl = QtWidgets.QGridLayout(gb)
+            hl = QtWidgets.QHBoxLayout()
+            vl1 = QtWidgets.QVBoxLayout()
+            lw = QtWidgets.QListWidget(gb)
+            lw.setDragDropOverwriteMode(True)
+            lw.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
+            lw.setDefaultDropAction(QtCore.Qt.MoveAction)
+            lw.setAlternatingRowColors(True)
+            lw.setSelectionMode(
+                QtWidgets.QAbstractItemView.ExtendedSelection)
+            lw.setSelectionRectVisible(False)
+            lw.setObjectName(prefix + "_listWidget")
+            vl1.addWidget(lw)
+            cp = QtWidgets.QPushButton(gb)
+            cp.setObjectName(prefix + "_copyRef_pushButton")
+            vl1.addWidget(cp)
+            hl.addLayout(vl1)
+            vl2 = QtWidgets.QVBoxLayout()
+            addb = QtWidgets.QPushButton(gb)
+            addb.setObjectName(prefix + "Add_pushButton")
+            vl2.addWidget(addb)
+            rmb = QtWidgets.QPushButton(gb)
+            rmb.setObjectName(prefix + "Remove_pushButton")
+            vl2.addWidget(rmb)
+            vl2.addItem(QtWidgets.QSpacerItem(
+                20, 40, QtWidgets.QSizePolicy.Minimum,
+                QtWidgets.QSizePolicy.Expanding))
+            hl.addLayout(vl2)
+            gl.addLayout(hl, 0, 0, 1, 1)
+            return gb, lw, cp, addb, rmb
+
+        (self.kneeRefArray_groupBox, self.kneeRefArray_listWidget,
+         self.kneeRefArray_copyRef_pushButton,
+         self.kneeRefArrayAdd_pushButton,
+         self.kneeRefArrayRemove_pushButton) = _mk_ref_group("kneeRefArray")
+        self.verticalLayout_2.addWidget(self.kneeRefArray_groupBox)
+
+        (self.ankleRefArray_groupBox, self.ankleRefArray_listWidget,
+         self.ankleRefArray_copyRef_pushButton,
+         self.ankleRefArrayAdd_pushButton,
+         self.ankleRefArrayRemove_pushButton) = _mk_ref_group("ankleRefArray")
+        self.verticalLayout_2.addWidget(self.ankleRefArray_groupBox)
 
         self.gridLayout.addLayout(self.verticalLayout_2, 0, 0, 1, 1)
 
@@ -294,8 +286,12 @@ class Ui_Form(object):
         self.upvRefArray_copyRef_pushButton.setText(gqt.fakeTranslate("Form", "Copy from IK Ref", None, -1))
         self.upvRefArrayAdd_pushButton.setText(gqt.fakeTranslate("Form", "<<", None, -1))
         self.upvRefArrayRemove_pushButton.setText(gqt.fakeTranslate("Form", ">>", None, -1))
-        self.pinRefArray_groupBox.setTitle(gqt.fakeTranslate("Form", "Pin Elbow Reference Array (Knee / Ankle)", None, -1))
-        self.pinRefArray_copyRef_pushButton.setText(gqt.fakeTranslate("Form", "Copy from IK Ref", None, -1))
-        self.pinRefArrayAdd_pushButton.setText(gqt.fakeTranslate("Form", "<<", None, -1))
-        self.pinRefArrayRemove_pushButton.setText(gqt.fakeTranslate("Form", ">>", None, -1))
+        self.kneeRefArray_groupBox.setTitle(gqt.fakeTranslate("Form", "Knee Pin Reference Array", None, -1))
+        self.kneeRefArray_copyRef_pushButton.setText(gqt.fakeTranslate("Form", "Copy from IK Ref", None, -1))
+        self.kneeRefArrayAdd_pushButton.setText(gqt.fakeTranslate("Form", "<<", None, -1))
+        self.kneeRefArrayRemove_pushButton.setText(gqt.fakeTranslate("Form", ">>", None, -1))
+        self.ankleRefArray_groupBox.setTitle(gqt.fakeTranslate("Form", "Ankle Pin Reference Array", None, -1))
+        self.ankleRefArray_copyRef_pushButton.setText(gqt.fakeTranslate("Form", "Copy from IK Ref", None, -1))
+        self.ankleRefArrayAdd_pushButton.setText(gqt.fakeTranslate("Form", "<<", None, -1))
+        self.ankleRefArrayRemove_pushButton.setText(gqt.fakeTranslate("Form", ">>", None, -1))
 

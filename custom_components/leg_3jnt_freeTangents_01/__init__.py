@@ -2,8 +2,8 @@
 
 Stage 1: functionally identical to leg_3jnt_01, minus the roundnessKnee /
 roundnessAnkle attributes (their curve-bulge is replaced by the free
-tangent controls in a later stage). Adds a Pin Elbow reference array
-(pinrefarray) that will pin the knee and the ankle.
+tangent controls in a later stage). Adds separate Knee / Ankle pin
+reference arrays (kneerefarray / anklerefarray).
 """
 
 import mgear.pymaya as pm
@@ -730,15 +730,22 @@ class Component(component.Main):
                     "upvref", "UpV Ref", 0, ref_names
                 )
 
-        if self.settings["pinrefarray"]:
+        if self.settings["kneerefarray"]:
             ref_names = self.get_valid_alias_list(
-                self.settings["pinrefarray"].split(",")
+                self.settings["kneerefarray"].split(",")
             )
             ref_names = ["Auto"] + ref_names
             if len(ref_names) > 1:
                 self.kneeref_att = self.addAnimEnumParam(
                     "kneeref", "Knee Ref", 0, ref_names
                 )
+
+        if self.settings["anklerefarray"]:
+            ref_names = self.get_valid_alias_list(
+                self.settings["anklerefarray"].split(",")
+            )
+            ref_names = ["Auto"] + ref_names
+            if len(ref_names) > 1:
                 self.ankleref_att = self.addAnimEnumParam(
                     "ankleref", "Ankle Ref", 0, ref_names
                 )
@@ -1212,20 +1219,33 @@ class Component(component.Main):
         # shaping of the deformation curves.
         initRound = 0.001
 
+        # Drive the twist locators from the knee / ankle control WORLD
+        # matrix (not their local channels). This way they follow the
+        # control whether it is moved directly or pinned to a reference.
         self.tws1_rot.attr("sx").set(initRound)
-        for x in ["translate"]:
-            pm.connectAttr(self.knee_ctl.attr(x), self.tws1_loc.attr(x))
+        tws1_mm = applyop.gear_mulmatrix_op(
+            self.knee_ctl.attr("worldMatrix[0]"),
+            self.tws1_loc.attr("parentInverseMatrix[0]"),
+        )
+        tws1_dm = node.createDecomposeMatrixNode(tws1_mm + ".output")
+        pm.connectAttr(tws1_dm + ".outputTranslate", self.tws1_loc.attr("t"))
         for x in "xy":
             pm.connectAttr(
-                self.knee_ctl.attr("r" + x), self.tws1_loc.attr("r" + x)
+                tws1_dm + ".outputRotate%s" % x.upper(),
+                self.tws1_loc.attr("r" + x),
             )
 
         self.tws2_rot.attr("sx").set(initRound)
-        for x in ["translate"]:
-            pm.connectAttr(self.ankle_ctl.attr(x), self.tws2_loc.attr(x))
+        tws2_mm = applyop.gear_mulmatrix_op(
+            self.ankle_ctl.attr("worldMatrix[0]"),
+            self.tws2_loc.attr("parentInverseMatrix[0]"),
+        )
+        tws2_dm = node.createDecomposeMatrixNode(tws2_mm + ".output")
+        pm.connectAttr(tws2_dm + ".outputTranslate", self.tws2_loc.attr("t"))
         for x in "xy":
             pm.connectAttr(
-                self.ankle_ctl.attr("r" + x), self.tws2_loc.attr("r" + x)
+                tws2_dm + ".outputRotate%s" % x.upper(),
+                self.tws2_loc.attr("r" + x),
             )
 
         # Volume -------------------------------------------
@@ -1392,16 +1412,17 @@ class Component(component.Main):
 
         # Pin the knee / ankle. "Auto" keeps them following the mid joints
         # (the default parentConstraint on knee_lvl / ankle_lvl).
-        if self.settings["pinrefarray"]:
+        if self.settings["kneerefarray"]:
             self.connectRef2(
-                "Auto," + self.settings["pinrefarray"],
+                "Auto," + self.settings["kneerefarray"],
                 self.knee_cns,
                 self.kneeref_att,
                 [self.knee_lvl],
                 False,
             )
+        if self.settings["anklerefarray"]:
             self.connectRef2(
-                "Auto," + self.settings["pinrefarray"],
+                "Auto," + self.settings["anklerefarray"],
                 self.ankle_cns,
                 self.ankleref_att,
                 [self.ankle_lvl],
