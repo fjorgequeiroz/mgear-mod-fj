@@ -691,12 +691,12 @@ class Component(component.Main):
         self.uplegTangentA_npo = primitive.addTransform(
             self.fk_ctl[0],
             self.getName("uplegTangentA_npo"),
-            t * self.fk_ctl[0].getMatrix(worldSpace=True).inverse(),
+            t,
         )
         self.uplegTangentA_ctl = self.addCtl(
             self.uplegTangentA_npo,
             "uplegTangentA_ctl",
-            datatypes.Matrix(),
+            t,
             self.color_ik,
             "circle",
             w=self.size * 0.15,
@@ -714,12 +714,12 @@ class Component(component.Main):
         self.uplegTangentB_npo = primitive.addTransform(
             self.knee_ctl,
             self.getName("uplegTangentB_npo"),
-            t * self.knee_ctl.getMatrix(worldSpace=True).inverse(),
+            t,
         )
         self.uplegTangentB_ctl = self.addCtl(
             self.uplegTangentB_npo,
             "uplegTangentB_ctl",
-            datatypes.Matrix(),
+            t,
             self.color_ik,
             "circle",
             w=self.size * 0.1,
@@ -738,12 +738,12 @@ class Component(component.Main):
         self.midlegTangentA_npo = primitive.addTransform(
             self.knee_ctl,
             self.getName("midlegTangentA_npo"),
-            t * self.knee_ctl.getMatrix(worldSpace=True).inverse(),
+            t,
         )
         self.midlegTangentA_ctl = self.addCtl(
             self.midlegTangentA_npo,
             "midlegTangentA_ctl",
-            datatypes.Matrix(),
+            t,
             self.color_ik,
             "circle",
             w=self.size * 0.1,
@@ -761,12 +761,12 @@ class Component(component.Main):
         self.midlegTangentB_npo = primitive.addTransform(
             self.ankle_ctl,
             self.getName("midlegTangentB_npo"),
-            t * self.ankle_ctl.getMatrix(worldSpace=True).inverse(),
+            t,
         )
         self.midlegTangentB_ctl = self.addCtl(
             self.midlegTangentB_npo,
             "midlegTangentB_ctl",
-            datatypes.Matrix(),
+            t,
             self.color_ik,
             "circle",
             w=self.size * 0.1,
@@ -785,12 +785,12 @@ class Component(component.Main):
         self.lowlegTangentA_npo = primitive.addTransform(
             self.ankle_ctl,
             self.getName("lowlegTangentA_npo"),
-            t * self.ankle_ctl.getMatrix(worldSpace=True).inverse(),
+            t,
         )
         self.lowlegTangentA_ctl = self.addCtl(
             self.lowlegTangentA_npo,
             "lowlegTangentA_ctl",
-            datatypes.Matrix(),
+            t,
             self.color_ik,
             "circle",
             w=self.size * 0.1,
@@ -811,7 +811,7 @@ class Component(component.Main):
         self.lowlegTangentB_ctl = self.addCtl(
             self.lowlegTangentB_loc,
             "lowlegTangentB_ctl",
-            datatypes.Matrix(),
+            t,
             self.color_ik,
             "circle",
             w=self.size * 0.15,
