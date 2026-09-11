@@ -658,16 +658,36 @@ class Component(component.Main):
         )
 
         # Tangent controls ------------------------------------------
-        # upleg segment: root(fk0) -> knee
-        tA = transform.getTransformLookingAt(
+        # Stable look-at frames positioned at the guide joints -- these
+        # are static rest-pose references (not driven by other rig
+        # nodes), mirroring leg_2jnt_freeTangents_01's tA/tB pattern.
+        # One per guide point, aimed at the next point down the chain.
+        tRoot = transform.getTransformLookingAt(
             self.guide.pos["root"], self.guide.pos["knee"],
             self.normal, "xz", self.negate,
         )
-        tA = transform.setMatrixPosition(tA, self.guide.pos["knee"])
+        tRoot = transform.setMatrixPosition(tRoot, self.guide.pos["root"])
 
-        t = transform.getInterpolateTransformMatrix(
-            self.fk_ctl[0], self.tws1_loc, 0.3
+        tKnee = transform.getTransformLookingAt(
+            self.guide.pos["knee"], self.guide.pos["ankle"],
+            self.normal, "xz", self.negate,
         )
+        tKnee = transform.setMatrixPosition(tKnee, self.guide.pos["knee"])
+
+        tAnkle = transform.getTransformLookingAt(
+            self.guide.pos["ankle"], self.guide.pos["foot"],
+            self.normal, "xz", self.negate,
+        )
+        tAnkle = transform.setMatrixPosition(tAnkle, self.guide.pos["ankle"])
+
+        tFoot = transform.getTransformLookingAt(
+            self.guide.pos["ankle"], self.guide.pos["foot"],
+            self.normal, "xz", self.negate,
+        )
+        tFoot = transform.setMatrixPosition(tFoot, self.guide.pos["foot"])
+
+        # upleg segment: root -> knee
+        t = transform.getInterpolateTransformMatrix(tRoot, tKnee, 0.3)
         self.uplegTangentA_npo = primitive.addTransform(
             self.fk_ctl[0], self.getName("uplegTangentA_npo"), t
         )
@@ -688,9 +708,7 @@ class Component(component.Main):
             self.uplegTangentA_ctl, self.t_params + ("rz",)
         )
 
-        t = transform.getInterpolateTransformMatrix(
-            self.fk_ctl[0], self.tws1_loc, 0.7
-        )
+        t = transform.getInterpolateTransformMatrix(tRoot, tKnee, 0.7)
         self.uplegTangentB_npo = primitive.addTransform(
             self.knee_ctl, self.getName("uplegTangentB_npo"), t
         )
@@ -712,9 +730,7 @@ class Component(component.Main):
         )
 
         # midleg segment: knee -> ankle
-        t = transform.getInterpolateTransformMatrix(
-            self.knee_ctl, self.tws2_loc, 0.3
-        )
+        t = transform.getInterpolateTransformMatrix(tKnee, tAnkle, 0.3)
         self.midlegTangentA_npo = primitive.addTransform(
             self.knee_ctl, self.getName("midlegTangentA_npo"), t
         )
@@ -735,9 +751,7 @@ class Component(component.Main):
             self.midlegTangentA_ctl, self.t_params + ("rz",)
         )
 
-        t = transform.getInterpolateTransformMatrix(
-            self.knee_ctl, self.tws2_loc, 0.7
-        )
+        t = transform.getInterpolateTransformMatrix(tKnee, tAnkle, 0.7)
         self.midlegTangentB_npo = primitive.addTransform(
             self.ankle_ctl, self.getName("midlegTangentB_npo"), t
         )
@@ -759,9 +773,7 @@ class Component(component.Main):
         )
 
         # lowleg segment: ankle -> foot (end)
-        t = transform.getInterpolateTransformMatrix(
-            self.ankle_ctl, self.tws3_loc, 0.3
-        )
+        t = transform.getInterpolateTransformMatrix(tAnkle, tFoot, 0.3)
         self.lowlegTangentA_npo = primitive.addTransform(
             self.ankle_ctl, self.getName("lowlegTangentA_npo"), t
         )
@@ -782,9 +794,7 @@ class Component(component.Main):
             self.lowlegTangentA_ctl, self.t_params + ("rz",)
         )
 
-        t = transform.getInterpolateTransformMatrix(
-            self.ankle_ctl, self.tws3_loc, 0.7
-        )
+        t = transform.getInterpolateTransformMatrix(tAnkle, tFoot, 0.7)
         self.lowlegTangentB_loc = primitive.addTransform(
             self.root, self.getName("lowlegTangentB_loc"), t
         )
