@@ -686,6 +686,14 @@ class Component(component.Main):
         )
         tFoot = transform.setMatrixPosition(tFoot, self.guide.pos["foot"])
 
+        # Empirically (rotating knee_ctl/ankle_ctl's own .ry by -90 lines
+        # the nearby tangents up correctly), knee_ctl/ankle_ctl's local
+        # frame is rotated +90 on Y relative to what the tangent npo's
+        # need. Bake the -90 correction into the local matrix of tangents
+        # parented under them, instead of touching knee_ctl/ankle_ctl.
+        kneeAnkleRollFix = datatypes.Matrix()
+        kneeAnkleRollFix.setRotation(datatypes.EulerRotation(0, -1.570796, 0))
+
         # upleg segment: root -> knee
         t = transform.getInterpolateTransformMatrix(tRoot, tKnee, 0.3)
         self.uplegTangentA_npo = primitive.addTransform(
@@ -714,7 +722,7 @@ class Component(component.Main):
         self.uplegTangentB_npo = primitive.addTransform(
             self.knee_ctl,
             self.getName("uplegTangentB_npo"),
-            t,
+            t * kneeAnkleRollFix,
         )
         self.uplegTangentB_ctl = self.addCtl(
             self.uplegTangentB_npo,
@@ -738,7 +746,7 @@ class Component(component.Main):
         self.midlegTangentA_npo = primitive.addTransform(
             self.knee_ctl,
             self.getName("midlegTangentA_npo"),
-            t,
+            t * kneeAnkleRollFix,
         )
         self.midlegTangentA_ctl = self.addCtl(
             self.midlegTangentA_npo,
@@ -761,7 +769,7 @@ class Component(component.Main):
         self.midlegTangentB_npo = primitive.addTransform(
             self.ankle_ctl,
             self.getName("midlegTangentB_npo"),
-            t,
+            t * kneeAnkleRollFix,
         )
         self.midlegTangentB_ctl = self.addCtl(
             self.midlegTangentB_npo,
@@ -785,7 +793,7 @@ class Component(component.Main):
         self.lowlegTangentA_npo = primitive.addTransform(
             self.ankle_ctl,
             self.getName("lowlegTangentA_npo"),
-            t,
+            t * kneeAnkleRollFix,
         )
         self.lowlegTangentA_ctl = self.addCtl(
             self.lowlegTangentA_npo,
