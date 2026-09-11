@@ -689,7 +689,9 @@ class Component(component.Main):
         # upleg segment: root -> knee
         t = transform.getInterpolateTransformMatrix(tRoot, tKnee, 0.3)
         self.uplegTangentA_npo = primitive.addTransform(
-            self.fk_ctl[0], self.getName("uplegTangentA_npo"), t
+            self.fk_ctl[0],
+            self.getName("uplegTangentA_npo"),
+            t * self.fk_ctl[0].getMatrix(worldSpace=True).inverse(),
         )
         self.uplegTangentA_ctl = self.addCtl(
             self.uplegTangentA_npo,
@@ -710,7 +712,9 @@ class Component(component.Main):
 
         t = transform.getInterpolateTransformMatrix(tRoot, tKnee, 0.7)
         self.uplegTangentB_npo = primitive.addTransform(
-            self.knee_ctl, self.getName("uplegTangentB_npo"), t
+            self.knee_ctl,
+            self.getName("uplegTangentB_npo"),
+            t * self.knee_ctl.getMatrix(worldSpace=True).inverse(),
         )
         self.uplegTangentB_ctl = self.addCtl(
             self.uplegTangentB_npo,
@@ -732,7 +736,9 @@ class Component(component.Main):
         # midleg segment: knee -> ankle
         t = transform.getInterpolateTransformMatrix(tKnee, tAnkle, 0.3)
         self.midlegTangentA_npo = primitive.addTransform(
-            self.knee_ctl, self.getName("midlegTangentA_npo"), t
+            self.knee_ctl,
+            self.getName("midlegTangentA_npo"),
+            t * self.knee_ctl.getMatrix(worldSpace=True).inverse(),
         )
         self.midlegTangentA_ctl = self.addCtl(
             self.midlegTangentA_npo,
@@ -753,7 +759,9 @@ class Component(component.Main):
 
         t = transform.getInterpolateTransformMatrix(tKnee, tAnkle, 0.7)
         self.midlegTangentB_npo = primitive.addTransform(
-            self.ankle_ctl, self.getName("midlegTangentB_npo"), t
+            self.ankle_ctl,
+            self.getName("midlegTangentB_npo"),
+            t * self.ankle_ctl.getMatrix(worldSpace=True).inverse(),
         )
         self.midlegTangentB_ctl = self.addCtl(
             self.midlegTangentB_npo,
@@ -775,7 +783,9 @@ class Component(component.Main):
         # lowleg segment: ankle -> foot (end)
         t = transform.getInterpolateTransformMatrix(tAnkle, tFoot, 0.3)
         self.lowlegTangentA_npo = primitive.addTransform(
-            self.ankle_ctl, self.getName("lowlegTangentA_npo"), t
+            self.ankle_ctl,
+            self.getName("lowlegTangentA_npo"),
+            t * self.ankle_ctl.getMatrix(worldSpace=True).inverse(),
         )
         self.lowlegTangentA_ctl = self.addCtl(
             self.lowlegTangentA_npo,
