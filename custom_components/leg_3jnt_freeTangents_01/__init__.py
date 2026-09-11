@@ -711,10 +711,14 @@ class Component(component.Main):
         )
 
         t = transform.getInterpolateTransformMatrix(tRoot, tKnee, 0.7)
+        # knee_ctl's local axes come from mid1_jnt's joint orient (twist
+        # solve), a different roll convention than tKnee's guide look-at
+        # frame. Convert t into knee_ctl's local space using tKnee (same
+        # convention as t) rather than knee_ctl's own live matrix.
         self.uplegTangentB_npo = primitive.addTransform(
             self.knee_ctl,
             self.getName("uplegTangentB_npo"),
-            t,
+            t * tKnee.inverse(),
         )
         self.uplegTangentB_ctl = self.addCtl(
             self.uplegTangentB_npo,
@@ -735,10 +739,12 @@ class Component(component.Main):
 
         # midleg segment: knee -> ankle
         t = transform.getInterpolateTransformMatrix(tKnee, tAnkle, 0.3)
+        # See uplegTangentB_npo note above: convert via tKnee, not
+        # knee_ctl's live (joint-orient-driven) matrix.
         self.midlegTangentA_npo = primitive.addTransform(
             self.knee_ctl,
             self.getName("midlegTangentA_npo"),
-            t,
+            t * tKnee.inverse(),
         )
         self.midlegTangentA_ctl = self.addCtl(
             self.midlegTangentA_npo,
@@ -758,10 +764,12 @@ class Component(component.Main):
         )
 
         t = transform.getInterpolateTransformMatrix(tKnee, tAnkle, 0.7)
+        # See uplegTangentB_npo note above: convert via tAnkle, not
+        # ankle_ctl's live (joint-orient-driven) matrix.
         self.midlegTangentB_npo = primitive.addTransform(
             self.ankle_ctl,
             self.getName("midlegTangentB_npo"),
-            t,
+            t * tAnkle.inverse(),
         )
         self.midlegTangentB_ctl = self.addCtl(
             self.midlegTangentB_npo,
@@ -782,10 +790,12 @@ class Component(component.Main):
 
         # lowleg segment: ankle -> foot (end)
         t = transform.getInterpolateTransformMatrix(tAnkle, tFoot, 0.3)
+        # See uplegTangentB_npo note above: convert via tAnkle, not
+        # ankle_ctl's live (joint-orient-driven) matrix.
         self.lowlegTangentA_npo = primitive.addTransform(
             self.ankle_ctl,
             self.getName("lowlegTangentA_npo"),
-            t,
+            t * tAnkle.inverse(),
         )
         self.lowlegTangentA_ctl = self.addCtl(
             self.lowlegTangentA_npo,
