@@ -1328,6 +1328,13 @@ class Component(component.Main):
         # fix the squash Stretch when Full3bonesIK is 0
         pm.pointConstraint(self.legBones[3], self.tws3_drv, mo=True)
 
+        # lowlegTangentB_loc is parented under the static guide root (it
+        # can't be parented under the live foot bone without breaking its
+        # build-time orientation), so it needs a live point constraint to
+        # the foot to actually follow IK/stretch -- same pattern as
+        # leg_2jnt_freeTangents_01's pointConstraint(eff_loc, lowlegTangentB_loc).
+        pm.pointConstraint(self.legBones[3], self.lowlegTangentB_loc)
+
         # IK 2 bones ===============================================
 
         self.ikHandle2 = primitive.addIkHandle(
