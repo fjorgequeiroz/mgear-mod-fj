@@ -696,7 +696,7 @@ class Component(component.Main):
         self.uplegTangentA_ctl = self.addCtl(
             self.uplegTangentA_npo,
             "uplegTangentA_ctl",
-            t,
+            datatypes.Matrix(),
             self.color_ik,
             "circle",
             w=self.size * 0.15,
@@ -719,7 +719,7 @@ class Component(component.Main):
         self.uplegTangentB_ctl = self.addCtl(
             self.uplegTangentB_npo,
             "uplegTangentB_ctl",
-            t,
+            datatypes.Matrix(),
             self.color_ik,
             "circle",
             w=self.size * 0.1,
@@ -743,7 +743,7 @@ class Component(component.Main):
         self.midlegTangentA_ctl = self.addCtl(
             self.midlegTangentA_npo,
             "midlegTangentA_ctl",
-            t,
+            datatypes.Matrix(),
             self.color_ik,
             "circle",
             w=self.size * 0.1,
@@ -766,7 +766,7 @@ class Component(component.Main):
         self.midlegTangentB_ctl = self.addCtl(
             self.midlegTangentB_npo,
             "midlegTangentB_ctl",
-            t,
+            datatypes.Matrix(),
             self.color_ik,
             "circle",
             w=self.size * 0.1,
@@ -790,7 +790,7 @@ class Component(component.Main):
         self.lowlegTangentA_ctl = self.addCtl(
             self.lowlegTangentA_npo,
             "lowlegTangentA_ctl",
-            t,
+            datatypes.Matrix(),
             self.color_ik,
             "circle",
             w=self.size * 0.1,
@@ -811,7 +811,7 @@ class Component(component.Main):
         self.lowlegTangentB_ctl = self.addCtl(
             self.lowlegTangentB_loc,
             "lowlegTangentB_ctl",
-            t,
+            datatypes.Matrix(),
             self.color_ik,
             "circle",
             w=self.size * 0.15,
