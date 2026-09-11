@@ -109,11 +109,14 @@ class Guide(guide.ComponentGuide):
     def get_divisions(self):
         """Returns correct segments divisions"""
 
+        # +5 (not +4): the free-tangent twist system has 2 junctions
+        # (knee, ankle) instead of leg_2jnt_freeTangents_01's single
+        # junction, see __init__.py addObjects() self.divisions.
         self.divisions = (
             self.root.div0.get()
             + self.root.div1.get()
             + self.root.div2.get()
-            + 4
+            + 5
         )
         return self.divisions
 

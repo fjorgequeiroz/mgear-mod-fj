@@ -1,12 +1,19 @@
 """Component Leg 3 joints Free Tangents 01 module.
 
-leg_3jnt_01 (dual IK/FK blend, soft IK, div0/div1/div2 divisions) with the
-free-tangent deformation system of leg_2jnt_freeTangents_01 in place of
-gear_rollsplinekine_op + roundnessKnee/roundnessAnkle: three spline-IK
-twist chains (upleg, midleg, lowleg) driven by curves shaped by
-per-segment tangent controls, with knee_ctl / ankle_ctl acting as the
-shared junction tangents. Separate Knee / Ankle pin reference arrays
-(kneerefarray / anklerefarray).
+3 bones leg (quadrupeds / animals) built on top of the standard
+leg_3jnt_01 dual IK/FK solver (unchanged), with the deformation backbone
+replaced by the free-tangent twist system ported from
+leg_2jnt_freeTangents_01: spline-IK twist chains, shaped by per-segment
+tangent controls, instead of the roundnessKnee / roundnessAnkle bulge
+attributes and the gear_rollsplinekine_op division loop.
+
+Because there are 3 bones (upleg, midleg, lowleg) and 2 junctions (knee,
+ankle) instead of the reference's 2 bones / 1 junction, the reference's
+single-junction tangent pattern (tws1A/tws1B under mid_ctl, kneeTangent_ctl
+under mid_ctl, uplegTwistChain/lowlegTwistChain) is mirrored twice: once at
+the knee (tws1A/tws1B under knee_ctl, kneeTangent_ctl under knee_ctl) and
+once at the ankle (tws2A/tws2B under ankle_ctl, ankleTangent_ctl under
+ankle_ctl).
 """
 
 import mgear.pymaya as pm
@@ -562,12 +569,19 @@ class Component(component.Main):
 
         self.tws3_drv.setAttr("sx", 0.001)
 
-        # Roll twist chains (free tangents) -----------------------
-        # 3 segments: upleg (root->knee), midleg (knee->ankle),
-        # lowleg (ankle->foot). Each is spline-IK driven by a curve
-        # shaped by 2 free tangent controls plus the segment's own
-        # junction control(s) (fk0/knee_ctl, knee_ctl/ankle_ctl,
-        # ankle_ctl/end).
+        # ---------------------------------------------------------------
+        # Free tangent twist system (ported from leg_2jnt_freeTangents_01)
+        # ---------------------------------------------------------------
+        # The reference has a single junction (mid_ctl / knee) between 2
+        # twist chains (uplegTwistChain, lowlegTwistChain). Here we have 2
+        # junctions (knee_ctl, ankle_ctl) between 3 twist chains
+        # (uplegTwistChain, midlegTwistChain, lowlegTwistChain). The
+        # reference's tws1A/tws1B (near-knee stable-orientation parents,
+        # living under mid_ctl) and kneeTangent_ctl (raw, parented directly
+        # under mid_ctl) pattern is mirrored at both junctions.
+
+        # Roll twist chains -----------------------------------------
+        # upleg: root -> knee
         self.uplegChainPos = []
         ii = 1.0 / (self.settings["div0"] + 1)
         i = 0.0
@@ -588,6 +602,7 @@ class Component(component.Main):
             self.WIP,
         )
 
+        # midleg: knee -> ankle
         self.midlegChainPos = []
         ii = 1.0 / (self.settings["div1"] + 1)
         i = 0.0
@@ -609,6 +624,7 @@ class Component(component.Main):
         )
         pm.parent(self.midlegTwistChain[0], self.knee_ctl)
 
+        # lowleg: ankle -> foot
         self.lowlegChainPos = []
         ii = 1.0 / (self.settings["div2"] + 1)
         i = 0.0
@@ -630,8 +646,32 @@ class Component(component.Main):
         )
         pm.parent(self.lowlegTwistChain[0], self.ankle_ctl)
 
-        # Non-roll join refs (2-joint helper chains, for the splineIK
-        # world-up references)
+        # Foot Aux chain and nonroll (mirrors reference's hand aux chain)
+        self.auxChainPos = []
+        ii = 0.5
+        i = 0.0
+        for p in range(3):
+            self.auxChainPos.append(
+                vector.linearlyInterpolate(
+                    self.guide.pos["foot"], self.guide.pos["eff"], blend=i
+                )
+            )
+            i = i + ii
+        t = self.root.getMatrix(worldSpace=True)
+
+        self.aux_npo = primitive.addTransform(
+            self.root, self.getName("aux_npo"), t
+        )
+        self.auxTwistChain = primitive.add2DChain(
+            self.aux_npo,
+            self.getName("auxTwist%s_jnt"),
+            self.auxChainPos[:3],
+            self.normal,
+            False,
+            self.WIP,
+        )
+
+        # Non Roll join ref ---------------------------------
         self.uplegRollRef = primitive.add2DChain(
             self.root,
             self.getName("uplegRollRef%s_jnt"),
@@ -640,230 +680,101 @@ class Component(component.Main):
             False,
             self.WIP,
         )
-        self.midlegRollRef = primitive.add2DChain(
-            self.root,
-            self.getName("midlegRollRef%s_jnt"),
-            self.midlegChainPos[:2],
-            self.normal,
-            False,
-            self.WIP,
-        )
+
         self.lowlegRollRef = primitive.add2DChain(
-            self.root,
+            self.aux_npo,
             self.getName("lowlegRollRef%s_jnt"),
-            self.lowlegChainPos[:2],
+            self.auxChainPos[:2],
             self.normal,
             False,
             self.WIP,
         )
 
-        # Tangent controls ------------------------------------------
-        # Stable look-at frames positioned at the guide joints -- these
-        # are static rest-pose references (not driven by other rig
-        # nodes), mirroring leg_2jnt_freeTangents_01's tA/tB pattern.
-        # One per guide point, aimed at the next point down the chain.
-        tRoot = transform.getTransformLookingAt(
-            self.guide.pos["root"], self.guide.pos["knee"],
-            self.normal, "xz", self.negate,
+        # tws_ref (equivalent of the reference's ankle-side tws_ref, but at
+        # the foot end for the aux/nonroll chain)
+        t = transform.getRotationFromAxis(
+            datatypes.Vector(0, -1, 0), self.normal, "xz", self.negate
         )
-        tRoot = transform.setMatrixPosition(tRoot, self.guide.pos["root"])
-
-        tKnee = transform.getTransformLookingAt(
-            self.guide.pos["knee"], self.guide.pos["ankle"],
-            self.normal, "xz", self.negate,
-        )
-        tKnee = transform.setMatrixPosition(tKnee, self.guide.pos["knee"])
-
-        tAnkle = transform.getTransformLookingAt(
-            self.guide.pos["ankle"], self.guide.pos["foot"],
-            self.normal, "xz", self.negate,
-        )
-        tAnkle = transform.setMatrixPosition(tAnkle, self.guide.pos["ankle"])
-
-        tFoot = transform.getTransformLookingAt(
-            self.guide.pos["ankle"], self.guide.pos["foot"],
-            self.normal, "xz", self.negate,
-        )
-        tFoot = transform.setMatrixPosition(tFoot, self.guide.pos["foot"])
-
-        # Empirically (rotating knee_ctl/ankle_ctl's own .ry by -90 lines
-        # the nearby tangents up correctly), knee_ctl/ankle_ctl's local
-        # frame is rotated +90 on Y relative to what the tangent npo's
-        # need. Bake the -90 correction into the local matrix of tangents
-        # parented under them, instead of touching knee_ctl/ankle_ctl.
-        kneeAnkleRollFix = datatypes.TransformationMatrix()
-        kneeAnkleRollFix.setRotation([0, -90, 0])
-
-        # upleg segment: root -> knee
-        t = transform.getInterpolateTransformMatrix(tRoot, tKnee, 0.3)
-        self.uplegTangentA_npo = primitive.addTransform(
-            self.fk_ctl[0],
-            self.getName("uplegTangentA_npo"),
-            t,
-        )
-        self.uplegTangentA_ctl = self.addCtl(
-            self.uplegTangentA_npo,
-            "uplegTangentA_ctl",
-            t,
-            self.color_ik,
-            "circle",
-            w=self.size * 0.15,
-            ro=datatypes.Vector(0, 0, 1.570796),
-            tp=self.knee_ctl,
-        )
-        if self.negate:
-            self.uplegTangentA_npo.rz.set(180)
-            self.uplegTangentA_npo.sz.set(-1)
-        attribute.setKeyableAttributes(
-            self.uplegTangentA_ctl, self.t_params + ("rz",)
+        t = transform.setMatrixPosition(t, self.guide.pos["foot"])
+        self.tws_ref = primitive.addTransform(
+            self.legBones[3], self.getName("tws_ref"), t
         )
 
-        t = transform.getInterpolateTransformMatrix(tRoot, tKnee, 0.7)
-        self.uplegTangentB_npo = primitive.addTransform(
-            self.knee_ctl,
-            self.getName("uplegTangentB_npo"),
-            t * kneeAnkleRollFix,
+        # Twist junction orientation locators ------------------------
+        # tws1A/tws1B live under knee_ctl (like reference's under mid_ctl)
+        tA_knee = transform.getTransformLookingAt(
+            self.guide.apos[0],
+            self.guide.apos[1],
+            self.normal,
+            "xz",
+            self.negate,
         )
-        self.uplegTangentB_ctl = self.addCtl(
-            self.uplegTangentB_npo,
-            "uplegTangentB_ctl",
-            t,
-            self.color_ik,
-            "circle",
-            w=self.size * 0.1,
-            ro=datatypes.Vector(0, 0, 1.570796),
-            tp=self.knee_ctl,
-        )
-        if self.negate:
-            self.uplegTangentB_npo.rz.set(180)
-            self.uplegTangentB_npo.sz.set(-1)
-        attribute.setKeyableAttributes(
-            self.uplegTangentB_ctl, self.t_params + ("rz",)
+        tA_knee = transform.setMatrixPosition(tA_knee, self.guide.apos[1])
+        tB_knee = transform.getTransformLookingAt(
+            self.guide.apos[1],
+            self.guide.apos[2],
+            self.normal,
+            "xz",
+            self.negate,
         )
 
-        # midleg segment: knee -> ankle
-        t = transform.getInterpolateTransformMatrix(tKnee, tAnkle, 0.3)
-        self.midlegTangentA_npo = primitive.addTransform(
-            self.knee_ctl,
-            self.getName("midlegTangentA_npo"),
-            t * kneeAnkleRollFix,
+        self.tws1A_npo = primitive.addTransform(
+            self.knee_ctl, self.getName("tws1A_npo"), tA_knee
         )
-        self.midlegTangentA_ctl = self.addCtl(
-            self.midlegTangentA_npo,
-            "midlegTangentA_ctl",
-            t,
-            self.color_ik,
-            "circle",
-            w=self.size * 0.1,
-            ro=datatypes.Vector(0, 0, 1.570796),
-            tp=self.ankle_ctl,
+        self.tws1A_loc = primitive.addTransform(
+            self.tws1A_npo, self.getName("tws1A_loc"), tA_knee
         )
-        if self.negate:
-            self.midlegTangentA_npo.rz.set(180)
-            self.midlegTangentA_npo.sz.set(-1)
-        attribute.setKeyableAttributes(
-            self.midlegTangentA_ctl, self.t_params + ("rz",)
+        self.tws1B_npo = primitive.addTransform(
+            self.knee_ctl, self.getName("tws1B_npo"), tB_knee
+        )
+        self.tws1B_loc = primitive.addTransform(
+            self.tws1B_npo, self.getName("tws1B_loc"), tB_knee
         )
 
-        t = transform.getInterpolateTransformMatrix(tKnee, tAnkle, 0.7)
-        self.midlegTangentB_npo = primitive.addTransform(
-            self.ankle_ctl,
-            self.getName("midlegTangentB_npo"),
-            t * kneeAnkleRollFix,
+        # tws2A/tws2B live under ankle_ctl
+        tA_ankle = transform.getTransformLookingAt(
+            self.guide.apos[1],
+            self.guide.apos[2],
+            self.normal,
+            "xz",
+            self.negate,
         )
-        self.midlegTangentB_ctl = self.addCtl(
-            self.midlegTangentB_npo,
-            "midlegTangentB_ctl",
-            t,
-            self.color_ik,
-            "circle",
-            w=self.size * 0.1,
-            ro=datatypes.Vector(0, 0, 1.570796),
-            tp=self.ankle_ctl,
-        )
-        if self.negate:
-            self.midlegTangentB_npo.rz.set(180)
-            self.midlegTangentB_npo.sz.set(-1)
-        attribute.setKeyableAttributes(
-            self.midlegTangentB_ctl, self.t_params + ("rz",)
+        tA_ankle = transform.setMatrixPosition(tA_ankle, self.guide.apos[2])
+        tB_ankle = transform.getTransformLookingAt(
+            self.guide.apos[2],
+            self.guide.apos[3],
+            self.normal,
+            "xz",
+            self.negate,
         )
 
-        # lowleg segment: ankle -> foot (end)
-        t = transform.getInterpolateTransformMatrix(tAnkle, tFoot, 0.3)
-        self.lowlegTangentA_npo = primitive.addTransform(
-            self.ankle_ctl,
-            self.getName("lowlegTangentA_npo"),
-            t * kneeAnkleRollFix,
+        self.tws2A_npo = primitive.addTransform(
+            self.ankle_ctl, self.getName("tws2A_npo"), tA_ankle
         )
-        self.lowlegTangentA_ctl = self.addCtl(
-            self.lowlegTangentA_npo,
-            "lowlegTangentA_ctl",
-            t,
-            self.color_ik,
-            "circle",
-            w=self.size * 0.1,
-            ro=datatypes.Vector(0, 0, 1.570796),
-            tp=self.ankle_ctl,
+        self.tws2A_loc = primitive.addTransform(
+            self.tws2A_npo, self.getName("tws2A_loc"), tA_ankle
         )
-        if self.negate:
-            self.lowlegTangentA_npo.rz.set(180)
-            self.lowlegTangentA_npo.sz.set(-1)
-        attribute.setKeyableAttributes(
-            self.lowlegTangentA_ctl, self.t_params + ("rz",)
+        self.tws2B_npo = primitive.addTransform(
+            self.ankle_ctl, self.getName("tws2B_npo"), tB_ankle
         )
-
-        t = transform.getInterpolateTransformMatrix(tAnkle, tFoot, 0.7)
-        self.lowlegTangentB_loc = primitive.addTransform(
-            self.root, self.getName("lowlegTangentB_loc"), t
-        )
-        self.lowlegTangentB_ctl = self.addCtl(
-            self.lowlegTangentB_loc,
-            "lowlegTangentB_ctl",
-            t,
-            self.color_ik,
-            "circle",
-            w=self.size * 0.15,
-            ro=datatypes.Vector(0, 0, 1.570796),
-            tp=self.ankle_ctl,
-        )
-        if self.negate:
-            self.lowlegTangentB_loc.rz.set(180)
-            self.lowlegTangentB_loc.sz.set(-1)
-        attribute.setKeyableAttributes(
-            self.lowlegTangentB_ctl, self.t_params + ("rz",)
+        self.tws2B_loc = primitive.addTransform(
+            self.tws2B_npo, self.getName("tws2B_loc"), tB_ankle
         )
 
         # Divisions ----------------------------------------
-        # We have at least one division at the start, the end and one for
-        # the knee and one ankle
+        # We have at least one division at the start, the end, one for the
+        # knee and one for the ankle (2 junctions -> +5, one more than the
+        # 2jnt reference's +4, which only has 1 junction).
         o_set = self.settings
-        self.divisions = o_set["div0"] + o_set["div1"] + o_set["div2"] + 4
+        self.divisions = o_set["div0"] + o_set["div1"] + o_set["div2"] + 5
 
         self.div_cns = []
-        self.tweak_ctl = []
-        tagP = self.parentCtlTag
         for i in range(self.divisions):
             div_cns = primitive.addTransform(
                 self.root_ctl, self.getName("div%s_loc" % i)
             )
             self.div_cns.append(div_cns)
-
-            tweak_ctl = self.addCtl(
-                div_cns,
-                "tweak%s_ctl" % i,
-                datatypes.TransformationMatrix(),
-                self.color_fk,
-                "square",
-                w=self.size * 0.15,
-                d=self.size * 0.15,
-                ro=datatypes.Vector([0, 0, 1.5708]),
-                tp=tagP,
-            )
-            attribute.setKeyableAttributes(tweak_ctl)
-            tagP = tweak_ctl
-            self.tweak_ctl.append(tweak_ctl)
-
-            self.jnt_pos.append([tweak_ctl, i])
+            self.jnt_pos.append([div_cns, i])
 
         # End reference ------------------------------------
         # To help the deformation on the foot
@@ -894,6 +805,204 @@ class Component(component.Main):
         )
 
         self.jnt_pos.append([self.squash_ref, "end"])
+
+        # Tangent controls -------------------------------------------
+        # upleg segment (root -> knee), mirrors reference uplegTangentA/B
+        t = transform.getInterpolateTransformMatrix(
+            self.fk_ctl[0], self.tws1A_npo, 0.5
+        )
+        self.uplegTangentA_loc = primitive.addTransform(
+            self.root_ctl,
+            self.getName("uplegTangentA_loc"),
+            self.fk_ctl[0].getMatrix(worldSpace=True),
+        )
+
+        self.uplegTangentA_npo = primitive.addTransform(
+            self.uplegTangentA_loc, self.getName("uplegTangentA_npo"), t
+        )
+
+        self.uplegTangentA_ctl = self.addCtl(
+            self.uplegTangentA_npo,
+            "uplegTangentA_ctl",
+            t,
+            self.color_ik,
+            "circle",
+            w=self.size * 0.2,
+            ro=datatypes.Vector(0, 0, 1.570796),
+            tp=self.knee_ctl,
+        )
+
+        if self.negate:
+            self.uplegTangentA_npo.rz.set(180)
+            self.uplegTangentA_npo.sz.set(-1)
+        attribute.setKeyableAttributes(self.uplegTangentA_ctl, self.t_params)
+
+        t = transform.getInterpolateTransformMatrix(
+            self.fk_ctl[0], self.tws1A_npo, 0.9
+        )
+        self.uplegTangentB_npo = primitive.addTransform(
+            self.tws1A_loc, self.getName("uplegTangentB_npo"), t
+        )
+
+        self.uplegTangentB_ctl = self.addCtl(
+            self.uplegTangentB_npo,
+            "uplegTangentB_ctl",
+            t,
+            self.color_ik,
+            "circle",
+            w=self.size * 0.1,
+            ro=datatypes.Vector(0, 0, 1.570796),
+            tp=self.knee_ctl,
+        )
+
+        if self.negate:
+            self.uplegTangentB_npo.rz.set(180)
+            self.uplegTangentB_npo.sz.set(-1)
+        attribute.setKeyableAttributes(self.uplegTangentB_ctl, self.t_params)
+
+        # Knee junction tangent - raw, parented directly under knee_ctl,
+        # exactly matching the reference's kneeTangent_ctl under mid_ctl.
+        t = self.knee_ctl.getMatrix(worldSpace=True)
+        self.kneeTangent_npo = primitive.addTransform(
+            self.knee_ctl, self.getName("kneeTangent_npo"), t
+        )
+
+        self.kneeTangent_ctl = self.addCtl(
+            self.kneeTangent_npo,
+            "kneeTangent_ctl",
+            t,
+            self.color_fk,
+            "circle",
+            w=self.size * 0.25,
+            ro=datatypes.Vector(0, 0, 1.570796),
+            tp=self.knee_ctl,
+        )
+
+        if self.negate:
+            self.kneeTangent_npo.rz.set(180)
+            self.kneeTangent_npo.sz.set(-1)
+        attribute.setKeyableAttributes(self.kneeTangent_ctl, self.t_params)
+
+        # midleg segment (knee -> ankle), mirrors reference's lowlegTangentA
+        # (near junction) and adds a mirrored "B" side near the ankle
+        # junction, following the same tws1B/tws2A stable-parent pattern.
+        tC_mid = self.tws2A_npo.getMatrix(worldSpace=True)
+        tC_mid = transform.setMatrixPosition(tC_mid, self.guide.apos[2])
+        t = transform.getInterpolateTransformMatrix(self.tws1B_npo, tC_mid, 0.1)
+        self.midlegTangentA_npo = primitive.addTransform(
+            self.tws1B_loc, self.getName("midlegTangentA_npo"), t
+        )
+
+        self.midlegTangentA_ctl = self.addCtl(
+            self.midlegTangentA_npo,
+            "midlegTangentA_ctl",
+            t,
+            self.color_ik,
+            "circle",
+            w=self.size * 0.1,
+            ro=datatypes.Vector(0, 0, 1.570796),
+            tp=self.knee_ctl,
+        )
+
+        if self.negate:
+            self.midlegTangentA_npo.rz.set(180)
+            self.midlegTangentA_npo.sz.set(-1)
+        attribute.setKeyableAttributes(self.midlegTangentA_ctl, self.t_params)
+
+        t = transform.getInterpolateTransformMatrix(self.tws1B_npo, tC_mid, 0.9)
+        self.midlegTangentB_npo = primitive.addTransform(
+            self.tws2A_loc, self.getName("midlegTangentB_npo"), t
+        )
+
+        self.midlegTangentB_ctl = self.addCtl(
+            self.midlegTangentB_npo,
+            "midlegTangentB_ctl",
+            t,
+            self.color_ik,
+            "circle",
+            w=self.size * 0.1,
+            ro=datatypes.Vector(0, 0, 1.570796),
+            tp=self.ankle_ctl,
+        )
+
+        if self.negate:
+            self.midlegTangentB_npo.rz.set(180)
+            self.midlegTangentB_npo.sz.set(-1)
+        attribute.setKeyableAttributes(self.midlegTangentB_ctl, self.t_params)
+
+        # Ankle junction tangent - raw, parented directly under ankle_ctl,
+        # matching the same known-good pattern as kneeTangent_ctl.
+        t = self.ankle_ctl.getMatrix(worldSpace=True)
+        self.ankleTangent_npo = primitive.addTransform(
+            self.ankle_ctl, self.getName("ankleTangent_npo"), t
+        )
+
+        self.ankleTangent_ctl = self.addCtl(
+            self.ankleTangent_npo,
+            "ankleTangent_ctl",
+            t,
+            self.color_fk,
+            "circle",
+            w=self.size * 0.25,
+            ro=datatypes.Vector(0, 0, 1.570796),
+            tp=self.ankle_ctl,
+        )
+
+        if self.negate:
+            self.ankleTangent_npo.rz.set(180)
+            self.ankleTangent_npo.sz.set(-1)
+        attribute.setKeyableAttributes(self.ankleTangent_ctl, self.t_params)
+
+        # lowleg segment (ankle -> foot), mirrors reference's
+        # lowlegTangentA (near junction) / lowlegTangentB (near foot end)
+        tC_low = self.tws2B_npo.getMatrix(worldSpace=True)
+        tC_low = transform.setMatrixPosition(tC_low, self.guide.apos[3])
+        t = transform.getInterpolateTransformMatrix(self.tws2B_npo, tC_low, 0.1)
+        self.lowlegTangentA_npo = primitive.addTransform(
+            self.tws2B_loc, self.getName("lowlegTangentA_npo"), t
+        )
+
+        self.lowlegTangentA_ctl = self.addCtl(
+            self.lowlegTangentA_npo,
+            "lowlegTangentA_ctl",
+            t,
+            self.color_ik,
+            "circle",
+            w=self.size * 0.1,
+            ro=datatypes.Vector(0, 0, 1.570796),
+            tp=self.ankle_ctl,
+        )
+
+        if self.negate:
+            self.lowlegTangentA_npo.rz.set(180)
+            self.lowlegTangentA_npo.sz.set(-1)
+        attribute.setKeyableAttributes(self.lowlegTangentA_ctl, self.t_params)
+
+        t = transform.getInterpolateTransformMatrix(self.tws2B_npo, tC_low, 0.5)
+
+        self.lowlegTangentB_loc = primitive.addTransform(
+            self.root, self.getName("lowlegTangentB_loc"), tC_low
+        )
+
+        self.lowlegTangentB_npo = primitive.addTransform(
+            self.lowlegTangentB_loc, self.getName("lowlegTangentB_npo"), t
+        )
+
+        self.lowlegTangentB_ctl = self.addCtl(
+            self.lowlegTangentB_npo,
+            "lowlegTangentB_ctl",
+            t,
+            self.color_ik,
+            "circle",
+            w=self.size * 0.2,
+            ro=datatypes.Vector(0, 0, 1.570796),
+            tp=self.ankle_ctl,
+        )
+
+        if self.negate:
+            self.lowlegTangentB_npo.rz.set(180)
+            self.lowlegTangentB_npo.sz.set(-1)
+        attribute.setKeyableAttributes(self.lowlegTangentB_ctl, self.t_params)
 
         # match IK FK references
         self.match_fk0_off = self.add_match_ref(
@@ -964,6 +1073,12 @@ class Component(component.Main):
         self.roll_att = self.addAnimParam(
             "roll", "Roll", "double", 0, -180, 180
         )
+        self.roundness_att = self.addAnimParam(
+            "roundness", "Roundness", "double", 0, 0, 1
+        )
+        self.tangentVis_att = self.addAnimParam(
+            "Tangent_vis", "Tangent vis", "bool", False
+        )
 
         self.boneALenghtMult_attr = self.addAnimParam(
             "boneALenMult", "Bone A Mult", "double", 1
@@ -1025,7 +1140,7 @@ class Component(component.Main):
                 )
         if self.validProxyChannels:
             attribute.addProxyAttribute(
-                [self.blend_att],
+                [self.blend_att, self.roundness_att],
                 [
                     self.fk0_ctl,
                     self.fk1_ctl,
@@ -1037,10 +1152,6 @@ class Component(component.Main):
             attribute.addProxyAttribute(
                 self.roll_att, [self.ik_ctl, self.upv_ctl]
             )
-
-        self.tweakVis_att = self.addAnimParam(
-            "Tweak_vis", "Tweak Vis", "bool", False
-        )
 
         self.foot_squash_att = self.addAnimParam(
             "footSquash", "Foot Squash", "double", 1, 0.01, 1.9
@@ -1090,14 +1201,6 @@ class Component(component.Main):
             "absolute", "Absolute", "bool", False
         )
 
-        # Free tangents ---------------------------------------------
-        self.roundness_att = self.addAnimParam(
-            "roundness", "Roundness", "double", 0, 0, 1
-        )
-        self.tangentVis_att = self.addAnimParam(
-            "Tangent_vis", "Tangent vis", "bool", False
-        )
-
         defValu = self.chain3bones[1].attr("jointOrientZ").get() / 2
         self.kneeFlipOffset_att = self.addSetupParam(
             "kneeFlipOffset", "Knee Flip Offset", "double", defValu, -180, 180
@@ -1111,26 +1214,6 @@ class Component(component.Main):
             -180,
             180,
         )
-
-    def _setTwistDriveUp(self, ikh, twistChain, rollRef):
-        """Stabilize a twist-chain spline IK handle's up vector against
-        its (non-rolling) roll-reference chain, mgear
-        leg_2jnt_freeTangents_01 style."""
-        ikh.attr("dTwistControlEnable").set(True)
-        ikh.attr("dWorldUpType").set(4)
-        ikh.attr("dForwardAxis").set(0)
-        ikh.attr("dWorldUpAxis").set(0)
-        ikh.attr("dWorldUpVectorZ").set(1)
-        ikh.attr("dWorldUpVectorY").set(0)
-        ikh.attr("dWorldUpVectorEndZ").set(1)
-        ikh.attr("dWorldUpVectorEndY").set(0)
-        pm.connectAttr(
-            rollRef[0].attr("worldMatrix[0]"), ikh.attr("dWorldUpMatrix")
-        )
-        pm.connectAttr(
-            rollRef[1].attr("worldMatrix[0]"), ikh.attr("dWorldUpMatrixEnd")
-        )
-        pm.setAttr(ikh.attr("visibility"), False)
 
     # =====================================================
     # OPERATORS
@@ -1336,13 +1419,6 @@ class Component(component.Main):
         # fix the squash Stretch when Full3bonesIK is 0
         pm.pointConstraint(self.legBones[3], self.tws3_drv, mo=True)
 
-        # lowlegTangentB_loc is parented under the static guide root (it
-        # can't be parented under the live foot bone without breaking its
-        # build-time orientation), so it needs a live point constraint to
-        # the foot to actually follow IK/stretch -- same pattern as
-        # leg_2jnt_freeTangents_01's pointConstraint(eff_loc, lowlegTangentB_loc).
-        pm.pointConstraint(self.legBones[3], self.lowlegTangentB_loc)
-
         # IK 2 bones ===============================================
 
         self.ikHandle2 = primitive.addIkHandle(
@@ -1522,15 +1598,10 @@ class Component(component.Main):
             cParent=self.legBones[0],
         )
 
-        # NOTE: the roundnessKnee / roundnessAnkle curve-bulge has been
-        # removed. The twist-reference scale is left at a small constant;
-        # the free tangent controls (added in a later stage) take over the
-        # shaping of the deformation curves.
-        initRound = 0.001
-
         # Drive the twist locators from the knee / ankle control WORLD
         # matrix (not their local channels). This way they follow the
         # control whether it is moved directly or pinned to a reference.
+        initRound = 0.001
         self.tws1_rot.attr("sx").set(initRound)
         tws1_mm = applyop.gear_mulmatrix_op(
             self.knee_ctl.attr("worldMatrix[0]"),
@@ -1557,103 +1628,282 @@ class Component(component.Main):
                 self.tws2_loc.attr("r" + x),
             )
 
-        # Free tangent twist chains --------------------------------
-        # Each segment gets its own spline-IK driven twist chain, its
-        # curve shaped by [start_ctl, tangentA, tangentB, end_ctl].
-        # knee_ctl / ankle_ctl act as the shared junction controls.
+        # Flip Offset ----------------------------------------
+        pm.connectAttr(self.ankleFlipOffset_att, self.tws2_loc.attr("rz"))
+        pm.connectAttr(self.kneeFlipOffset_att, self.tws1_loc.attr("rz"))
 
-        self.uplegTangentA_ctl.attr("tx").set(0)
-        self.uplegTangentB_ctl.attr("tx").set(0)
-        self.midlegTangentA_ctl.attr("tx").set(0)
-        self.midlegTangentB_ctl.attr("tx").set(0)
-        self.lowlegTangentA_ctl.attr("tx").set(0)
-        self.lowlegTangentB_ctl.attr("tx").set(0)
+        # connect roll rotation driver reference
+        pm.orientConstraint(
+            self.legBones[3],
+            self.tws3_drv,
+            skip=["y", "z"],
+            maintainOffset=True,
+            weight=1,
+        )
 
-        # upleg: fk0 -> uplegTangentA -> uplegTangentB -> knee
-        self.uplegIkh, self.uplegTmpCrv = applyop.splineIK(
+        # ---------------------------------------------------------------
+        # Free tangent twist system operators
+        # ---------------------------------------------------------------
+
+        # spline IK for twist jnts
+        self.ikhUpLegTwist, self.uplegTwistCrv = applyop.splineIK(
             self.getName("uplegTwist"),
             self.uplegTwistChain,
             parent=self.root,
-            cParent=self.root,
-        )
-        applyop.gear_curvecns_op(
-            self.uplegTmpCrv,
-            [
-                self.fk_ctl[0],
-                self.uplegTangentA_ctl,
-                self.uplegTangentB_ctl,
-                self.knee_ctl,
-            ],
-        )
-        self._setTwistDriveUp(
-            self.uplegIkh, self.uplegTwistChain, self.uplegRollRef
+            cParent=self.legBones[0],
         )
 
-        # midleg: knee -> midlegTangentA -> midlegTangentB -> ankle
-        self.midlegIkh, self.midlegTmpCrv = applyop.splineIK(
+        self.ikhMidLegTwist, self.midlegTwistCrv = applyop.splineIK(
             self.getName("midlegTwist"),
             self.midlegTwistChain,
             parent=self.root,
-            cParent=self.root,
-        )
-        applyop.gear_curvecns_op(
-            self.midlegTmpCrv,
-            [
-                self.knee_ctl,
-                self.midlegTangentA_ctl,
-                self.midlegTangentB_ctl,
-                self.ankle_ctl,
-            ],
-        )
-        self._setTwistDriveUp(
-            self.midlegIkh, self.midlegTwistChain, self.midlegRollRef
+            cParent=self.mid1_jnt,
         )
 
-        # lowleg: ankle -> lowlegTangentA -> lowlegTangentB -> foot(tws3)
-        self.lowlegIkh, self.lowlegTmpCrv = applyop.splineIK(
+        self.ikhLowLegTwist, self.lowlegTwistCrv = applyop.splineIK(
             self.getName("lowlegTwist"),
             self.lowlegTwistChain,
             parent=self.root,
-            cParent=self.root,
-        )
-        applyop.gear_curvecns_op(
-            self.lowlegTmpCrv,
-            [
-                self.ankle_ctl,
-                self.lowlegTangentA_ctl,
-                self.lowlegTangentB_ctl,
-                self.lowlegTangentB_loc,
-            ],
-        )
-        self._setTwistDriveUp(
-            self.lowlegIkh, self.lowlegTwistChain, self.lowlegRollRef
+            cParent=self.mid2_jnt,
         )
 
-        # Roundness --------------------------------------------------
-        # bias the tangent controls' local rz to shape the bulge, driven
-        # by a single anim attribute (replaces roundnessKnee/roundnessAnkle)
-        for tan_ctl in [
-            self.uplegTangentA_ctl,
-            self.uplegTangentB_ctl,
-            self.midlegTangentA_ctl,
-            self.midlegTangentB_ctl,
-            self.lowlegTangentA_ctl,
-            self.lowlegTangentB_ctl,
-        ]:
-            mul_node = node.createMulNode(self.roundness_att, 1.0)
-            pm.connectAttr(mul_node + ".outputX", tan_ctl.attr("rz"), f=True)
+        # references
+        self.ikhUpLegRef, self.tmpCrvA = applyop.splineIK(
+            self.getName("uplegRollRef"),
+            self.uplegRollRef,
+            parent=self.root,
+            cParent=self.legBones[0],
+        )
 
-        # tangent controls visibility
-        for tan_ctl in [
-            self.uplegTangentA_ctl,
-            self.uplegTangentB_ctl,
-            self.midlegTangentA_ctl,
-            self.midlegTangentB_ctl,
-            self.lowlegTangentA_ctl,
-            self.lowlegTangentB_ctl,
-        ]:
-            for shp in tan_ctl.getShapes():
-                pm.connectAttr(self.tangentVis_att, shp.attr("visibility"))
+        self.ikhLowLegRef, self.tmpCrvB = applyop.splineIK(
+            self.getName("lowlegRollRef"),
+            self.lowlegRollRef,
+            parent=self.root,
+            cParent=self.legBones[3],
+        )
+
+        self.ikhAuxTwist, self.tmpCrvC = applyop.splineIK(
+            self.getName("auxTwist"),
+            self.auxTwistChain,
+            parent=self.root,
+            cParent=self.legBones[3],
+        )
+
+        # setting connexions for ikhUpLegTwist
+        self.ikhUpLegTwist.attr("dTwistControlEnable").set(True)
+        self.ikhUpLegTwist.attr("dWorldUpType").set(4)
+        self.ikhUpLegTwist.attr("dWorldUpAxis").set(3)
+        self.ikhUpLegTwist.attr("dWorldUpVectorZ").set(1.0)
+        self.ikhUpLegTwist.attr("dWorldUpVectorY").set(0.0)
+        self.ikhUpLegTwist.attr("dWorldUpVectorEndZ").set(1.0)
+        self.ikhUpLegTwist.attr("dWorldUpVectorEndY").set(0.0)
+        pm.connectAttr(
+            self.uplegRollRef[0].attr("worldMatrix[0]"),
+            self.ikhUpLegTwist.attr("dWorldUpMatrix"),
+        )
+        pm.connectAttr(
+            self.legBones[0].attr("worldMatrix[0]"),
+            self.ikhUpLegTwist.attr("dWorldUpMatrixEnd"),
+        )
+
+        # setting connexions for ikhAuxTwist
+        self.ikhAuxTwist.attr("dTwistControlEnable").set(True)
+        self.ikhAuxTwist.attr("dWorldUpType").set(4)
+        self.ikhAuxTwist.attr("dWorldUpAxis").set(3)
+        self.ikhAuxTwist.attr("dWorldUpVectorZ").set(1.0)
+        self.ikhAuxTwist.attr("dWorldUpVectorY").set(0.0)
+        self.ikhAuxTwist.attr("dWorldUpVectorEndZ").set(1.0)
+        self.ikhAuxTwist.attr("dWorldUpVectorEndY").set(0.0)
+        pm.connectAttr(
+            self.lowlegRollRef[0].attr("worldMatrix[0]"),
+            self.ikhAuxTwist.attr("dWorldUpMatrix"),
+        )
+        pm.connectAttr(
+            self.tws_ref.attr("worldMatrix[0]"),
+            self.ikhAuxTwist.attr("dWorldUpMatrixEnd"),
+        )
+        pm.connectAttr(
+            self.auxTwistChain[1].attr("rx"), self.ikhLowLegTwist.attr("twist")
+        )
+
+        pm.parentConstraint(self.legBones[3], self.aux_npo, maintainOffset=True)
+
+        # scale leg length for the twist chains (not the squash and stretch)
+        arclen_node = pm.arclen(self.uplegTwistCrv, ch=True)
+        alAttrUpLeg = arclen_node.attr("arcLength")
+        muldiv_nodeUpLeg = pm.createNode("multiplyDivide")
+        pm.connectAttr(
+            arclen_node.attr("arcLength"), muldiv_nodeUpLeg.attr("input1X")
+        )
+        muldiv_nodeUpLeg.attr("input2X").set(alAttrUpLeg.get())
+        muldiv_nodeUpLeg.attr("operation").set(2)
+        for jnt in self.uplegTwistChain:
+            pm.connectAttr(muldiv_nodeUpLeg.attr("outputX"), jnt.attr("sx"))
+
+        arclen_node = pm.arclen(self.midlegTwistCrv, ch=True)
+        alAttrMidLeg = arclen_node.attr("arcLength")
+        muldiv_nodeMidLeg = pm.createNode("multiplyDivide")
+        pm.connectAttr(
+            arclen_node.attr("arcLength"), muldiv_nodeMidLeg.attr("input1X")
+        )
+        muldiv_nodeMidLeg.attr("input2X").set(alAttrMidLeg.get())
+        muldiv_nodeMidLeg.attr("operation").set(2)
+        for jnt in self.midlegTwistChain:
+            pm.connectAttr(muldiv_nodeMidLeg.attr("outputX"), jnt.attr("sx"))
+
+        arclen_node = pm.arclen(self.lowlegTwistCrv, ch=True)
+        alAttrLowLeg = arclen_node.attr("arcLength")
+        muldiv_nodeLowLeg = pm.createNode("multiplyDivide")
+        pm.connectAttr(
+            arclen_node.attr("arcLength"), muldiv_nodeLowLeg.attr("input1X")
+        )
+        muldiv_nodeLowLeg.attr("input2X").set(alAttrLowLeg.get())
+        muldiv_nodeLowLeg.attr("operation").set(2)
+        for jnt in self.lowlegTwistChain:
+            pm.connectAttr(muldiv_nodeLowLeg.attr("outputX"), jnt.attr("sx"))
+
+        # scale compensation for the first twist joint of each chain
+        dm_node = pm.createNode("decomposeMatrix")
+        pm.connectAttr(
+            self.root.attr("worldMatrix[0]"), dm_node.attr("inputMatrix")
+        )
+        pm.connectAttr(
+            dm_node.attr("outputScale"),
+            self.uplegTwistChain[0].attr("inverseScale"),
+        )
+        pm.connectAttr(
+            dm_node.attr("outputScale"),
+            self.midlegTwistChain[0].attr("inverseScale"),
+        )
+        pm.connectAttr(
+            dm_node.attr("outputScale"),
+            self.lowlegTwistChain[0].attr("inverseScale"),
+        )
+
+        # tangent controls (roundness bias) -------------------------
+        # Knee junction (tws1A / tws1B)
+        muldiv_node = pm.createNode("multiplyDivide")
+        muldiv_node.attr("input2X").set(-1)
+        pm.connectAttr(self.tws1A_npo.attr("rz"), muldiv_node.attr("input1X"))
+        muldiv_nodeBias = pm.createNode("multiplyDivide")
+        pm.connectAttr(
+            muldiv_node.attr("outputX"), muldiv_nodeBias.attr("input1X")
+        )
+        pm.connectAttr(self.roundness_att, muldiv_nodeBias.attr("input2X"))
+        pm.connectAttr(
+            muldiv_nodeBias.attr("outputX"), self.tws1A_loc.attr("rz")
+        )
+        if self.negate:
+            axis = "xz"
+        else:
+            axis = "-xz"
+        applyop.aimCns(
+            self.tws1A_npo,
+            self.tws0_loc,
+            axis=axis,
+            wupType=2,
+            wupVector=[0, 0, 1],
+            wupObject=self.knee_ctl,
+            maintainOffset=False,
+        )
+
+        muldiv_node = pm.createNode("multiplyDivide")
+        muldiv_node.attr("input2X").set(-1)
+        pm.connectAttr(self.tws1B_npo.attr("rz"), muldiv_node.attr("input1X"))
+        muldiv_nodeBias = pm.createNode("multiplyDivide")
+        pm.connectAttr(
+            muldiv_node.attr("outputX"), muldiv_nodeBias.attr("input1X")
+        )
+        pm.connectAttr(self.roundness_att, muldiv_nodeBias.attr("input2X"))
+        pm.connectAttr(
+            muldiv_nodeBias.attr("outputX"), self.tws1B_loc.attr("rz")
+        )
+        if self.negate:
+            axis = "-xz"
+        else:
+            axis = "xz"
+        applyop.aimCns(
+            self.tws1B_npo,
+            self.tws2_loc,
+            axis=axis,
+            wupType=2,
+            wupVector=[0, 0, 1],
+            wupObject=self.knee_ctl,
+            maintainOffset=False,
+        )
+
+        applyop.aimCns(
+            self.uplegTangentA_loc,
+            self.uplegTangentB_npo,
+            axis=axis,
+            wupType=2,
+            wupVector=[0, 0, 1],
+            wupObject=self.knee_ctl,
+            maintainOffset=False,
+        )
+
+        # Ankle junction (tws2A / tws2B)
+        muldiv_node = pm.createNode("multiplyDivide")
+        muldiv_node.attr("input2X").set(-1)
+        pm.connectAttr(self.tws2A_npo.attr("rz"), muldiv_node.attr("input1X"))
+        muldiv_nodeBias = pm.createNode("multiplyDivide")
+        pm.connectAttr(
+            muldiv_node.attr("outputX"), muldiv_nodeBias.attr("input1X")
+        )
+        pm.connectAttr(self.roundness_att, muldiv_nodeBias.attr("input2X"))
+        pm.connectAttr(
+            muldiv_nodeBias.attr("outputX"), self.tws2A_loc.attr("rz")
+        )
+        if self.negate:
+            axis = "xz"
+        else:
+            axis = "-xz"
+        applyop.aimCns(
+            self.tws2A_npo,
+            self.tws1_loc,
+            axis=axis,
+            wupType=2,
+            wupVector=[0, 0, 1],
+            wupObject=self.ankle_ctl,
+            maintainOffset=False,
+        )
+
+        muldiv_node = pm.createNode("multiplyDivide")
+        muldiv_node.attr("input2X").set(-1)
+        pm.connectAttr(self.tws2B_npo.attr("rz"), muldiv_node.attr("input1X"))
+        muldiv_nodeBias = pm.createNode("multiplyDivide")
+        pm.connectAttr(
+            muldiv_node.attr("outputX"), muldiv_nodeBias.attr("input1X")
+        )
+        pm.connectAttr(self.roundness_att, muldiv_nodeBias.attr("input2X"))
+        pm.connectAttr(
+            muldiv_nodeBias.attr("outputX"), self.tws2B_loc.attr("rz")
+        )
+        if self.negate:
+            axis = "-xz"
+        else:
+            axis = "xz"
+        applyop.aimCns(
+            self.tws2B_npo,
+            self.tws3_loc,
+            axis=axis,
+            wupType=2,
+            wupVector=[0, 0, 1],
+            wupObject=self.ankle_ctl,
+            maintainOffset=False,
+        )
+
+        applyop.aimCns(
+            self.lowlegTangentB_loc,
+            self.lowlegTangentA_npo,
+            axis=axis,
+            wupType=2,
+            wupVector=[0, 0, 1],
+            wupObject=self.ankle_ctl,
+            maintainOffset=False,
+        )
+
+        pm.pointConstraint(self.tws3_loc, self.lowlegTangentB_loc)
 
         # Volume -------------------------------------------
         distA_node = node.createDistNode(self.tws0_loc, self.tws1_loc)
@@ -1669,8 +1919,9 @@ class Component(component.Main):
             add_node2 + ".output", self.root_ctl.attr("sx")
         )
 
-        # comp scaling
-        dm_node = node.createDecomposeMatrixNode(self.root.attr("worldMatrix"))
+        # comp scaling issue
+        dm_node = pm.createNode("decomposeMatrix")
+        pm.connectAttr(self.root.attr("worldMatrix"), dm_node + ".inputMatrix")
 
         div_node2 = node.createDivNode(
             div_node + ".outputX", dm_node + ".outputScaleX"
@@ -1678,48 +1929,118 @@ class Component(component.Main):
 
         self.volDriver_att = div_node2 + ".outputX"
 
-        # Flip Offset ----------------------------------------
-        pm.connectAttr(self.ankleFlipOffset_att, self.tws2_loc.attr("rz"))
-        pm.connectAttr(self.kneeFlipOffset_att, self.tws1_loc.attr("rz"))
+        # connecting tangent scale compensation after volume to avoid
+        # duplicating nodes
+        distA_node = node.createDistNode(self.tws0_loc, self.knee_ctl)
+        distB_node = node.createDistNode(self.knee_ctl, self.ankle_ctl)
+        distC_node = node.createDistNode(self.ankle_ctl, self.tws3_loc)
+
+        div_nodeUpLeg = node.createDivNode(
+            distA_node + ".distance", dm_node.attr("outputScaleX")
+        )
+        div_node2 = node.createDivNode(
+            div_nodeUpLeg + ".outputX", distA_node.attr("distance").get()
+        )
+        pm.connectAttr(div_node2.attr("outputX"), self.tws1A_loc.attr("sx"))
+        pm.connectAttr(
+            div_node2.attr("outputX"), self.uplegTangentA_loc.attr("sx")
+        )
+
+        div_nodeMidLeg = node.createDivNode(
+            distB_node + ".distance", dm_node.attr("outputScaleX")
+        )
+        div_node2 = node.createDivNode(
+            div_nodeMidLeg + ".outputX", distB_node.attr("distance").get()
+        )
+        pm.connectAttr(div_node2.attr("outputX"), self.tws1B_loc.attr("sx"))
+        pm.connectAttr(div_node2.attr("outputX"), self.tws2A_loc.attr("sx"))
+
+        div_nodeLowLeg = node.createDivNode(
+            distC_node + ".distance", dm_node.attr("outputScaleX")
+        )
+        div_node2 = node.createDivNode(
+            div_nodeLowLeg + ".outputX", distC_node.attr("distance").get()
+        )
+        pm.connectAttr(div_node2.attr("outputX"), self.tws2B_loc.attr("sx"))
+        pm.connectAttr(
+            div_node2.attr("outputX"), self.lowlegTangentB_loc.attr("sx")
+        )
+
+        # conection curve
+        cnts = [
+            self.uplegTangentA_loc,
+            self.uplegTangentA_ctl,
+            self.uplegTangentB_ctl,
+            self.kneeTangent_ctl,
+        ]
+        applyop.gear_curvecns_op(self.uplegTwistCrv, cnts)
+
+        cnts = [
+            self.kneeTangent_ctl,
+            self.midlegTangentA_ctl,
+            self.midlegTangentB_ctl,
+            self.ankleTangent_ctl,
+        ]
+        applyop.gear_curvecns_op(self.midlegTwistCrv, cnts)
+
+        cnts = [
+            self.ankleTangent_ctl,
+            self.lowlegTangentA_ctl,
+            self.lowlegTangentB_ctl,
+            self.lowlegTangentB_loc,
+        ]
+        applyop.gear_curvecns_op(self.lowlegTwistCrv, cnts)
+
+        # Tangent controls vis
+        for shp in self.uplegTangentA_ctl.getShapes():
+            pm.connectAttr(self.tangentVis_att, shp.attr("visibility"))
+        for shp in self.uplegTangentB_ctl.getShapes():
+            pm.connectAttr(self.tangentVis_att, shp.attr("visibility"))
+        for shp in self.midlegTangentA_ctl.getShapes():
+            pm.connectAttr(self.tangentVis_att, shp.attr("visibility"))
+        for shp in self.midlegTangentB_ctl.getShapes():
+            pm.connectAttr(self.tangentVis_att, shp.attr("visibility"))
+        for shp in self.lowlegTangentA_ctl.getShapes():
+            pm.connectAttr(self.tangentVis_att, shp.attr("visibility"))
+        for shp in self.lowlegTangentB_ctl.getShapes():
+            pm.connectAttr(self.tangentVis_att, shp.attr("visibility"))
+        for shp in self.kneeTangent_ctl.getShapes():
+            pm.connectAttr(self.tangentVis_att, shp.attr("visibility"))
+        for shp in self.ankleTangent_ctl.getShapes():
+            pm.connectAttr(self.tangentVis_att, shp.attr("visibility"))
+
         # Divisions ----------------------------------------
-        # Free tangents: instead of gear_rollsplinekine_op sampling a
-        # single blended curve, each division is driven directly by its
-        # corresponding joint on the segment's twist chain (upleg /
-        # midleg / lowleg), matched 1:1 since each chain was built with
-        # exactly div{N}+2 joints (matching the division count that
-        # falls inside that segment plus its two shared end joints).
-        div0 = self.settings["div0"]
-        div1 = self.settings["div1"]
-        div2 = self.settings["div2"]
-
-        # index ranges of self.div_cns that belong to each segment,
-        # mirroring the segment boundaries used historically by `perc`
-        # (div0+2 divisions up to and including the knee, then div1+2
-        # up to and including the ankle, then div2+2 to the end)
-        upleg_end = div0 + 2
-        midleg_end = upleg_end + div1 + 2
-
+        # at 0 or 1 the division will follow exactly the rotation of the
+        # controler.. and we wont have this nice tangent + roll.
+        # boundaries: upleg -> [0, div0+2), midleg -> [div0+2, div0+div1+3),
+        # lowleg -> [div0+div1+3, divisions)
+        uplegEnd = self.settings["div0"] + 2
+        midlegEnd = uplegEnd + self.settings["div1"] + 1
+        lastUpLegDiv = None
+        lastMidLegDiv = None
+        lastLowLegDiv = None
         for i, div_cns in enumerate(self.div_cns):
-            if i < upleg_end:
-                chain = self.uplegTwistChain
-                idx = i
-            elif i < midleg_end:
-                chain = self.midlegTwistChain
-                idx = i - upleg_end
+            if i < uplegEnd:
+                mulmat_node = applyop.gear_mulmatrix_op(
+                    self.uplegTwistChain[i] + ".worldMatrix",
+                    div_cns + ".parentInverseMatrix",
+                )
+                lastUpLegDiv = div_cns
+            elif i < midlegEnd:
+                o_node = self.midlegTwistChain[i - uplegEnd]
+                mulmat_node = applyop.gear_mulmatrix_op(
+                    o_node + ".worldMatrix", div_cns + ".parentInverseMatrix"
+                )
+                lastMidLegDiv = div_cns
             else:
-                chain = self.lowlegTwistChain
-                idx = i - midleg_end
-
-            idx = max(0, min(idx, len(chain) - 1))
-            driver = chain[idx]
-
-            mm_node = applyop.gear_mulmatrix_op(
-                driver.attr("worldMatrix[0]"),
-                div_cns.attr("parentInverseMatrix[0]"),
-            )
-            dm_node = node.createDecomposeMatrixNode(mm_node + ".output")
-            pm.connectAttr(dm_node + ".outputTranslate", div_cns.attr("t"))
-            pm.connectAttr(dm_node + ".outputRotate", div_cns.attr("r"))
+                o_node = self.lowlegTwistChain[i - midlegEnd]
+                mulmat_node = applyop.gear_mulmatrix_op(
+                    o_node + ".worldMatrix", div_cns + ".parentInverseMatrix"
+                )
+                lastLowLegDiv = div_cns
+            dm_node = node.createDecomposeMatrixNode(mulmat_node + ".output")
+            pm.connectAttr(dm_node + ".outputTranslate", div_cns + ".t")
+            pm.connectAttr(dm_node + ".outputRotate", div_cns + ".r")
 
             # Squash n Stretch
             o_node = applyop.gear_squashstretch2_op(
@@ -1730,13 +2051,24 @@ class Component(component.Main):
             pm.connectAttr(self.st_att[i], o_node + ".stretch")
             pm.connectAttr(self.sq_att[i], o_node + ".squash")
 
-        # connect roll rotation driver reference
-        pm.orientConstraint(
-            self.legBones[3],
-            self.tws3_drv,
-            skip=["y", "z"],
-            maintainOffset=True,
-            weight=1,
+        # force translation for last loc of each twist chain
+        applyop.gear_mulmatrix_op(
+            self.kneeTangent_ctl.worldMatrix,
+            lastUpLegDiv.parentInverseMatrix,
+            lastUpLegDiv,
+            "t",
+        )
+        applyop.gear_mulmatrix_op(
+            self.ankleTangent_ctl.worldMatrix,
+            lastMidLegDiv.parentInverseMatrix,
+            lastMidLegDiv,
+            "t",
+        )
+        applyop.gear_mulmatrix_op(
+            self.tws3_loc.worldMatrix,
+            lastLowLegDiv.parentInverseMatrix,
+            lastLowLegDiv,
+            "t",
         )
 
         # Visibilities -------------------------------------
@@ -1749,10 +2081,6 @@ class Component(component.Main):
         for ctrl in [self.ik_ctl, self.roll_ctl, self.upv_ctl, self.line_ref]:
             for shp in ctrl.getShapes():
                 pm.connectAttr(self.blend_att, shp.attr("visibility"))
-        # tweaks
-        for tweak_ctl in self.tweak_ctl:
-            for shp in tweak_ctl.getShapes():
-                pm.connectAttr(self.tweakVis_att, shp.attr("visibility"))
 
         # setup leg o_node scale compensate
         pm.connectAttr(self.rig.global_ctl + ".scale", self.setup + ".scale")
@@ -1776,11 +2104,13 @@ class Component(component.Main):
 
     def setRelation(self):
         """Set the relation beetween object from guide to rig"""
-        self.relatives["root"] = self.legBones[0]
-        self.relatives["knee"] = self.legBones[1]
-        self.relatives["ankle"] = self.legBones[2]
-        self.relatives["foot"] = self.legBones[3]
-        self.relatives["eff"] = self.legBones[3]
+        self.relatives["root"] = self.div_cns[0]
+        self.relatives["knee"] = self.div_cns[self.settings["div0"] + 2]
+        self.relatives["ankle"] = self.div_cns[
+            self.settings["div0"] + self.settings["div1"] + 3
+        ]
+        self.relatives["foot"] = self.div_cns[-1]
+        self.relatives["eff"] = self.squash_ref
 
         self.controlRelatives["root"] = self.fk0_ctl
         self.controlRelatives["knee"] = self.fk1_ctl
@@ -1791,7 +2121,7 @@ class Component(component.Main):
         self.jointRelatives["root"] = 0
         self.jointRelatives["knee"] = self.settings["div0"] + 2
         self.jointRelatives["ankle"] = (
-            self.settings["div0"] + self.settings["div1"] + 2
+            self.settings["div0"] + self.settings["div1"] + 3
         )
         self.jointRelatives["foot"] = len(self.div_cns)
         self.jointRelatives["eff"] = len(self.div_cns)
