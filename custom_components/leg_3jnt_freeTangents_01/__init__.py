@@ -691,8 +691,8 @@ class Component(component.Main):
         # frame is rotated +90 on Y relative to what the tangent npo's
         # need. Bake the -90 correction into the local matrix of tangents
         # parented under them, instead of touching knee_ctl/ankle_ctl.
-        kneeAnkleRollFix = datatypes.Matrix()
-        kneeAnkleRollFix.setRotation(datatypes.EulerRotation(0, -1.570796, 0))
+        kneeAnkleRollFix = datatypes.TransformationMatrix()
+        kneeAnkleRollFix.setRotation([0, -90, 0])
 
         # upleg segment: root -> knee
         t = transform.getInterpolateTransformMatrix(tRoot, tKnee, 0.3)
