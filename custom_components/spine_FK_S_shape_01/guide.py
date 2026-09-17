@@ -88,6 +88,7 @@ class Guide(guide.ComponentGuide):
 
         # Options
         self.pDivision = self.addParam("division", "long", 5, 3)
+        self.pJntDivision = self.addParam("jntDivision", "long", 5, 3)
         self.pCentralTangent = self.addParam("centralTangent", "bool", False)
 
         # FCurves
@@ -175,6 +176,8 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
             self.root.attr("maxsquash").get())
         self.settingsTab.division_spinBox.setValue(
             self.root.attr("division").get())
+        self.settingsTab.jntDivision_spinBox.setValue(
+            self.root.attr("jntDivision").get())
         self.populateCheck(self.settingsTab.centralTangent_checkBox,
                            "centralTangent")
 
@@ -216,6 +219,10 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
             partial(self.updateSpinBox,
                     self.settingsTab.division_spinBox,
                     "division"))
+        self.settingsTab.jntDivision_spinBox.valueChanged.connect(
+            partial(self.updateSpinBox,
+                    self.settingsTab.jntDivision_spinBox,
+                    "jntDivision"))
         self.settingsTab.centralTangent_checkBox.stateChanged.connect(
             partial(self.updateCheck,
                     self.settingsTab.centralTangent_checkBox,

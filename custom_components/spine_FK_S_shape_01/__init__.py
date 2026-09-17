@@ -263,7 +263,7 @@ class Component(component.Main):
 
         self.jointList = []
         self.preiviousCtlTag = self.parentCtlTag
-        for i in range(self.settings["division"]):
+        for i in range(self.settings["jntDivision"]):
 
             # References
             div_cns = primitive.addTransform(parentdiv,
@@ -343,9 +343,9 @@ class Component(component.Main):
             self.sq_value = self.guide.paramDefs["sq_profile"].value
         else:
             self.st_value = fcurve.getFCurveValues(self.settings["st_profile"],
-                                                   self.divisions)
+                                                   self.settings["jntDivision"])
             self.sq_value = fcurve.getFCurveValues(self.settings["sq_profile"],
-                                                   self.divisions)
+                                                   self.settings["jntDivision"])
 
         self.st_att = [self.addSetupParam("stretch_%s" % i,
                                           "Stretch %s" % i,
@@ -353,7 +353,7 @@ class Component(component.Main):
                                           self.st_value[i],
                                           -1,
                                           0)
-                       for i in range(self.settings["division"])]
+                       for i in range(self.settings["jntDivision"])]
 
         self.sq_att = [self.addSetupParam("squash_%s" % i,
                                           "Squash %s" % i,
@@ -361,7 +361,7 @@ class Component(component.Main):
                                           self.sq_value[i],
                                           0,
                                           1)
-                       for i in range(self.settings["division"])]
+                       for i in range(self.settings["jntDivision"])]
 
     # =====================================================
     # OPERATORS
@@ -436,10 +436,10 @@ class Component(component.Main):
         crv_node = node.createCurveInfoNode(self.slv_crv)
 
         # Division -----------------------------------------
-        for i in range(self.settings["division"]):
+        for i in range(self.settings["jntDivision"]):
 
             # References
-            u = i / (self.settings["division"] - 1.0)
+            u = i / (self.settings["jntDivision"] - 1.0)
 
             cns = applyop.pathCns(
                 self.div_cns[i], self.slv_crv, False, u, True)
