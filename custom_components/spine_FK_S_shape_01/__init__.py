@@ -29,7 +29,30 @@ class Component(component.Main):
 
         t2 = transform.setMatrixPosition(t, self.guide.pos["eff"])
 
-        int_t = t
+        # Guide curve used only to sample FK rest positions/tangents so
+        # the FK chain matches the S-shape guide curvature instead of a
+        # straight line between root and eff. Deleted once sampled.
+        guide_crv = curve.addCurve(
+            self.root,
+            self.getName("fkGuide_tmp_crv"),
+            [self.guide.pos["root"],
+             self.guide.pos["tan0"],
+             self.guide.pos["tan1"],
+             self.guide.pos["eff"]],
+            False,
+            3)
+
+        blade_normal = self.guide.blades["blade"].z * -1
+
+        def fk_transform_at(u):
+            pos = pm.pointOnCurve(guide_crv, pr=u, position=True)
+            tan = pm.pointOnCurve(guide_crv, pr=u, normalizedTangent=True)
+            pos = datatypes.Vector(pos)
+            lookat = pos + datatypes.Vector(tan)
+            return transform.getTransformLookingAt(
+                pos, lookat, blade_normal, "yx", self.negate)
+
+        int_t = fk_transform_at(0.0)
         self.preiviousCtlTag = self.parentCtlTag
 
         # FK Controlers ------------------------------------
@@ -63,8 +86,9 @@ class Component(component.Main):
 
             blend_val = blend_val + blend_increment
 
-            int_t = transform.getInterpolateTransformMatrix(
-                t, t2, blend=blend_val)
+            int_t = fk_transform_at(min(blend_val, 1.0))
+
+        pm.delete(guide_crv)
 
         for x in self.fk_ctl:
             attribute.setKeyableAttributes(x)
