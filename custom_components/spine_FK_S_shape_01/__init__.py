@@ -52,7 +52,10 @@ class Component(component.Main):
             return transform.getTransformLookingAt(
                 pos, lookat, blade_normal, "yx", self.negate)
 
-        int_t = fk_transform_at(0.0)
+        t_curve_start = fk_transform_at(0.0)
+        t_curve_end = fk_transform_at(1.0)
+
+        int_t = t_curve_start
         self.preiviousCtlTag = self.parentCtlTag
 
         # FK Controlers ------------------------------------
@@ -96,12 +99,14 @@ class Component(component.Main):
             attribute.setInvertMirror(x, ["tx", "rz", "ry"])
 
         # Ik Controlers ------------------------------------
+        # Oriented from the guide curve (same sampling as fk_ctl[0] /
+        # fk_ctl[-1]) so IK and FK stay aligned at the endpoints.
 
         self.ik0_npo = primitive.addTransform(
-            self.fk_ctl[0], self.getName("ik0_npo"), t)
+            self.fk_ctl[0], self.getName("ik0_npo"), t_curve_start)
         self.ik0_ctl = self.addCtl(self.ik0_npo,
                                    "ik0_ctl",
-                                   t,
+                                   t_curve_start,
                                    self.color_ik,
                                    "compas",
                                    w=self.size,
@@ -111,13 +116,12 @@ class Component(component.Main):
         attribute.setRotOrder(self.ik0_ctl, "ZXY")
         attribute.setInvertMirror(self.ik0_ctl, ["tx", "ry", "rz"])
 
-        t = transform.setMatrixPosition(t, self.guide.pos["eff"])
         self.ik1_npo = primitive.addTransform(
-            self.fk_ctl[-1], self.getName("ik1_npo"), t)
+            self.fk_ctl[-1], self.getName("ik1_npo"), t_curve_end)
 
         self.ik1_ctl = self.addCtl(self.ik1_npo,
                                    "ik1_ctl",
-                                   t,
+                                   t_curve_end,
                                    self.color_ik,
                                    "compas",
                                    w=self.size,
