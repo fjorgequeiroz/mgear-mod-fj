@@ -7,9 +7,11 @@ another guide's components that share the same full name
 Only the locators listed in each component guide class ``save_transform`` are
 moved (this is mGear's own notion of "the parts of a guide you are allowed to
 place"). ``#`` multi-locator names are expanded through the component
-``minmax``. Each moved locator receives the full world matrix of the matching
-reference locator - position *and* rotation. Locked / non-transform parts
-(blades, size references, parameters) are never touched.
+``minmax``. Each moved locator is FORCED onto the matching reference
+locator's world matrix - translation *and* rotation - unlocking a locked
+channel just long enough to write it and re-locking it after, so a locked
+channel never silently blocks the match. Scale / shear and non-transform
+parts (blades, size references, parameters) are never touched.
 
 Two ways to provide the *reference* positions:
 
@@ -20,6 +22,14 @@ Two ways to provide the *reference* positions:
                     imported into the scene as a new guide, then either the
                     imported guide or the existing scene guide is used as the
                     one that moves.
+
+Those two pickers set the *default* reference/target for every row, but the
+preview table's Source guide / Target guide columns are editable per row:
+each is a dropdown of every guide currently in the scene (refreshed with the
+"Refresh guide list" button, or automatically after a template import), so
+any single component can be re-pointed at a different guide than the rest of
+the table without redoing the whole match. Changing a row's dropdown
+re-resolves just that row immediately.
 
 Components on the target that have no match on the reference are left exactly
 as they are (in the template case that means "just imported, transform
@@ -149,6 +159,23 @@ def _guide_model_from_selection(node):
     return None
 
 
+def list_guide_models():
+    """Every guide model (``ismodel`` node) currently in the scene.
+
+    Returns:
+        list[pm.PyNode]: guide model transforms, alphabetically by name.
+    """
+    names = cmds.ls("*", type="transform", long=True) or []
+    models = []
+    for n in names:
+        if cmds.attributeQuery("ismodel", node=n, exists=True):
+            try:
+                models.append(pm.PyNode(n))
+            except Exception:
+                pass
+    return sorted(models, key=lambda m: m.name())
+
+
 def _transform_local_names(comp_guide):
     """Local names of the transformable locators of a component.
 
@@ -206,6 +233,71 @@ def _node_exists(comp_guide, node_name):
     return _resolve(comp_guide, node_name) is not None
 
 
+def match_single_component(ref_guide, tgt_guide, name):
+    """Build the match-plan row for one component full name.
+
+    Shared by :func:`build_match_plan` (bulk, all target components) and the
+    UI's per-row Source/Target override (re-resolve one row against a guide
+    picked just for that row).
+
+    Args:
+        ref_guide (Guide): reference guide (positions to match), or None.
+        tgt_guide (Guide): target guide (component that gets moved), or None.
+        name (str): component full name to look up on both sides.
+
+    Returns:
+        dict: a plan row, see :func:`build_match_plan`.
+    """
+    tgt_comp = tgt_guide.components.get(name) if tgt_guide else None
+    ref_comp = ref_guide.components.get(name) if ref_guide else None
+
+    if tgt_comp is None and ref_comp is None:
+        return {
+            "name": name,
+            "comp_type": "?",
+            "status": ST_NOT_CRAWLED,
+            "locators": [],
+            "missing": [],
+        }
+
+    if tgt_comp is None:
+        # only exists on the reference side
+        return {
+            "name": name,
+            "comp_type": ref_comp.values.get("comp_type", ref_comp.compType),
+            "status": ST_REF_ONLY,
+            "locators": [],
+            "missing": [],
+        }
+
+    row = {
+        "name": name,
+        "comp_type": tgt_comp.values.get("comp_type", tgt_comp.compType),
+        "status": ST_NO_MATCH,
+        "locators": [],
+        "missing": [],
+    }
+
+    if ref_comp is not None:
+        row["status"] = ST_MATCH
+
+        ref_locals = _transform_local_names(ref_comp)
+        tgt_locals = _transform_local_names(tgt_comp)
+        common = [ln for ln in tgt_locals if ln in ref_locals]
+
+        for ln in common:
+            tgt_node = _resolve(tgt_comp, tgt_comp.getName(ln))
+            ref_node = _resolve(ref_comp, ref_comp.getName(ln))
+            if tgt_node is not None and ref_node is not None:
+                row["locators"].append((tgt_node, ref_node))
+
+        row["missing"] = [
+            ln for ln in tgt_locals if ln not in ref_locals
+        ] + [ln for ln in ref_locals if ln not in tgt_locals]
+
+    return row
+
+
 def build_match_plan(ref_guide, tgt_guide):
     """Compute the per-component match plan between two guides.
 
@@ -228,48 +320,12 @@ def build_match_plan(ref_guide, tgt_guide):
 
     # target components, in guide order
     for name in tgt_guide.componentsIndex:
-        tgt_comp = tgt_guide.components[name]
-        row = {
-            "name": name,
-            "comp_type": tgt_comp.values.get("comp_type", tgt_comp.compType),
-            "status": ST_NO_MATCH,
-            "locators": [],
-            "missing": [],
-        }
-
-        if name in ref_names:
-            ref_comp = ref_guide.components[name]
-            row["status"] = ST_MATCH
-
-            ref_locals = _transform_local_names(ref_comp)
-            tgt_locals = _transform_local_names(tgt_comp)
-            common = [ln for ln in tgt_locals if ln in ref_locals]
-
-            for ln in common:
-                tgt_node = _resolve(tgt_comp, tgt_comp.getName(ln))
-                ref_node = _resolve(ref_comp, ref_comp.getName(ln))
-                if tgt_node is not None and ref_node is not None:
-                    row["locators"].append((tgt_node, ref_node))
-
-            row["missing"] = [
-                ln for ln in tgt_locals if ln not in ref_locals
-            ] + [ln for ln in ref_locals if ln not in tgt_locals]
-
-        plan.append(row)
+        plan.append(match_single_component(ref_guide, tgt_guide, name))
 
     # reference-only components (informational)
     for name in ref_guide.componentsIndex:
         if name not in tgt_names:
-            ref_comp = ref_guide.components[name]
-            plan.append(
-                {
-                    "name": name,
-                    "comp_type": ref_comp.values.get("comp_type", ref_comp.compType),
-                    "status": ST_REF_ONLY,
-                    "locators": [],
-                    "missing": [],
-                }
-            )
+            plan.append(match_single_component(ref_guide, None, name))
 
     return plan
 
@@ -281,17 +337,16 @@ _TR_ATTRS = (
 
 
 def _snap_tr(tgt_node, ref_node):
-    """Match ``tgt_node`` world translation + rotation to ``ref_node``.
+    """Force ``tgt_node``'s world translation + rotation onto ``ref_node``'s.
 
-    Only unlocked translate / rotate channels on ``tgt_node`` are written, so
-    locked parts of a component (e.g. an axis a component pins down) are left
-    alone. Scale and shear are never touched.
+    The full world matrix (translation + rotation) is always written,
+    unlocking any locked translate/rotate channel just long enough to set it
+    and re-locking it after, so the position match is never silently
+    dropped by a locked channel. Scale and shear are never touched.
 
     Returns:
-        bool: True if any channel was written.
+        bool: True (kept for call-site compatibility / future use).
     """
-    # any locked translate/rotate channel -> go through a temp worldspace
-    # match then read back only the unlocked channels
     world_m = ref_node.getMatrix(worldSpace=True)
 
     # Use the full (long) dag path for every cmds.* call below. ``.name()``
@@ -301,41 +356,21 @@ def _snap_tr(tgt_node, ref_node):
     # name - are loaded in the same scene. Full paths are always unambiguous.
     tgt_path = tgt_node.longName()
 
-    # remember current unlocked-channel intent
-    locked = {}
+    locked_attrs = []
     for group in _TR_ATTRS:
         for attr in group:
             full = "{}.{}".format(tgt_path, attr)
-            try:
-                settable = cmds.getAttr(full, settable=True)
-            except Exception:
-                settable = False
-            locked[attr] = (not settable) or cmds.getAttr(full, lock=True)
-
-    if not any(locked.values()):
-        tgt_node.setMatrix(world_m, worldSpace=True)
-        return True
-
-    # snapshot locked channel values, do the full match, restore locked ones
-    saved = {
-        a: cmds.getAttr("{}.{}".format(tgt_path, a))
-        for a, is_l in locked.items()
-        if is_l
-    }
-    tgt_node.setMatrix(world_m, worldSpace=True)
-    wrote = False
-    for a, is_l in locked.items():
-        full = "{}.{}".format(tgt_path, a)
-        if is_l:
-            was_locked = cmds.getAttr(full, lock=True)
-            if was_locked:
+            if cmds.getAttr(full, lock=True):
+                locked_attrs.append(full)
                 cmds.setAttr(full, lock=False)
-            cmds.setAttr(full, saved[a])
-            if was_locked:
-                cmds.setAttr(full, lock=True)
-        else:
-            wrote = True
-    return wrote
+
+    try:
+        tgt_node.setMatrix(world_m, worldSpace=True)
+    finally:
+        for full in locked_attrs:
+            cmds.setAttr(full, lock=True)
+
+    return True
 
 
 def apply_match_plan(plan):
@@ -415,14 +450,20 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         )
         self.setObjectName("mgear_guide_match_import")
         self.setWindowTitle("Guide Match / Import")
-        self.setMinimumWidth(620)
+        self.setMinimumWidth(900)
         self.setWindowFlags(self.windowFlags() ^ QtCore.Qt.WindowContextHelpButtonHint)
 
         self._ref_group = None   # pm.PyNode - reference guide root/model
         self._tgt_group = None   # pm.PyNode - target guide root/model
         self._ref_model_node = None  # resolved model used by the last run
         self._tgt_model_node = None
-        self._plan = []
+        self._plan = {}  # {component full name: plan row dict}
+
+        # Source/Target column support: every guide model currently in the
+        # scene, and a lazily-populated cache of their parsed Guide objects
+        # (parsing walks the whole hierarchy, so it is not re-done per row).
+        self._guide_choices = []       # list[pm.PyNode] model nodes
+        self._guide_cache = {}         # model node name (str) -> Guide obj
 
         self._build()
         self._connect()
@@ -503,9 +544,21 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         self.preview_btn = QtWidgets.QPushButton("Preview matches")
         main.addWidget(self.preview_btn)
 
-        self.table = QtWidgets.QTableWidget(0, 4)
+        # Column(s): Component | Source guide | Target guide | Type |
+        #            Match status | Locators moved
+        self.COL_NAME, self.COL_SRC, self.COL_TGT, self.COL_TYPE, \
+            self.COL_STATUS, self.COL_LOCS = range(6)
+
+        self.table = QtWidgets.QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
-            ["Component", "Type", "Match status", "Locators moved"]
+            [
+                "Component",
+                "Source guide",
+                "Target guide",
+                "Type",
+                "Match status",
+                "Locators moved",
+            ]
         )
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionsClickable(True)
@@ -517,10 +570,20 @@ class GuideMatchImportUI(QtWidgets.QDialog):
             QtWidgets.QAbstractItemView.NoEditTriggers
         )
         self.table.verticalHeader().setVisible(False)
-        self.table.setColumnWidth(0, 200)
-        self.table.setColumnWidth(1, 150)
-        self.table.setColumnWidth(2, 170)
+        self.table.setColumnWidth(self.COL_NAME, 170)
+        self.table.setColumnWidth(self.COL_SRC, 150)
+        self.table.setColumnWidth(self.COL_TGT, 150)
+        self.table.setColumnWidth(self.COL_TYPE, 130)
+        self.table.setColumnWidth(self.COL_STATUS, 170)
         main.addWidget(self.table)
+
+        refresh_row = QtWidgets.QHBoxLayout()
+        self.refresh_guides_btn = QtWidgets.QPushButton(
+            "Refresh guide list (Source/Target columns)"
+        )
+        refresh_row.addWidget(self.refresh_guides_btn)
+        refresh_row.addStretch(1)
+        main.addLayout(refresh_row)
 
         self.summary_lbl = QtWidgets.QLabel("")
         main.addWidget(self.summary_lbl)
@@ -540,6 +603,7 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         self.tpl_browse.clicked.connect(self._browse_template)
         self.preview_btn.clicked.connect(self.preview)
         self.apply_btn.clicked.connect(self.apply)
+        self.refresh_guides_btn.clicked.connect(self._refresh_guide_choices)
 
     # -- helpers -----------------------------------------------------
 
@@ -602,6 +666,128 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         if fp:
             self.tpl_path.setText(fp)
 
+    # -- per-row Source/Target guide picking -----------------------------
+
+    def _guide_for(self, model_node):
+        """Parsed ``Guide`` for a model node, using/populating the cache.
+
+        Args:
+            model_node (pm.PyNode): a guide model (``ismodel`` node).
+
+        Returns:
+            Guide: parsed guide object.
+        """
+        key = model_node.name(long=True)
+        guide_obj = self._guide_cache.get(key)
+        if guide_obj is None:
+            guide_obj = _parse_guide(model_node)
+            self._guide_cache[key] = guide_obj
+        return guide_obj
+
+    def _refresh_guide_choices(self):
+        """Re-scan the scene for guide models and rebuild every row's combo.
+
+        Clears the parsed-guide cache too, so edits made to a guide since
+        the last scan (e.g. after an Apply) are picked up.
+        """
+        self._guide_cache = {}
+        self._guide_choices = list_guide_models()
+        for r in range(self.table.rowCount()):
+            for col in (self.COL_SRC, self.COL_TGT):
+                combo = self.table.cellWidget(r, col)
+                if combo is not None:
+                    self._populate_row_combo(combo)
+
+    def _populate_row_combo(self, combo):
+        """Fill a row's guide combobox, keeping its current pick if still valid."""
+        current = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        for model_node in self._guide_choices:
+            combo.addItem(model_node.name(), model_node)
+        combo.blockSignals(False)
+        if current is not None:
+            for i in range(combo.count()):
+                if combo.itemData(i) == current:
+                    combo.setCurrentIndex(i)
+                    break
+
+    def _make_row_combo(self, component_name, preselect):
+        """Build a Source/Target guide combobox for one table row.
+
+        The component full name is stamped on the widget itself (Qt dynamic
+        property) rather than relied on via row index, because
+        ``setSortingEnabled(True)`` lets the user reorder table rows by
+        clicking a header - a captured row index would go stale the moment
+        that happens. Looking the row up by the widget's own identity keeps
+        this correct no matter how the table is currently sorted.
+
+        Args:
+            component_name (str): full name this combo belongs to.
+            preselect (pm.PyNode or None): guide model to select initially.
+
+        Returns:
+            QComboBox
+        """
+        combo = QtWidgets.QComboBox()
+        combo.setEditable(False)
+        combo.setProperty("component_name", component_name)
+        for model_node in self._guide_choices:
+            combo.addItem(model_node.name(), model_node)
+        if preselect is not None:
+            for i in range(combo.count()):
+                if combo.itemData(i) == preselect:
+                    combo.setCurrentIndex(i)
+                    break
+        combo.currentIndexChanged.connect(self._on_row_combo_changed)
+        return combo
+
+    def _find_row_by_name(self, name):
+        """Current table row index displaying component ``name``, or -1.
+
+        Looked up by the Source combo's stamped ``component_name`` property
+        rather than list position, so it stays correct after the user sorts
+        the table by clicking a header.
+        """
+        for r in range(self.table.rowCount()):
+            w = self.table.cellWidget(r, self.COL_SRC)
+            if w is not None and w.property("component_name") == name:
+                return r
+        return -1
+
+    def _on_row_combo_changed(self, *_args):
+        combo = self.sender()
+        if combo is None:
+            return
+        name = combo.property("component_name")
+        if name:
+            self._rebuild_row(name)
+
+    def _rebuild_row(self, name):
+        """Re-resolve a single component from its own combo picks.
+
+        Args:
+            name (str): component full name - the stable key. The table row
+                that currently displays it is found by widget identity, so
+                this is correct regardless of the table's current sort
+                order.
+        """
+        r = self._find_row_by_name(name)
+        if r < 0:
+            return
+        src_combo = self.table.cellWidget(r, self.COL_SRC)
+        tgt_combo = self.table.cellWidget(r, self.COL_TGT)
+        src_model = src_combo.currentData() if src_combo else None
+        tgt_model = tgt_combo.currentData() if tgt_combo else None
+
+        ref_guide = self._guide_for(src_model) if src_model is not None else None
+        tgt_guide = self._guide_for(tgt_model) if tgt_model is not None else None
+
+        row = match_single_component(ref_guide, tgt_guide, name)
+        self._plan[name] = row
+        self._paint_row(r, row)
+        self._update_summary()
+
     # -- resolve the two guides for the current mode ------------------------
 
     def _resolve_guides(self, do_import):
@@ -617,8 +803,8 @@ class GuideMatchImportUI(QtWidgets.QDialog):
                 return None, None, "Set both a reference and a target guide."
             if self._ref_group == self._tgt_group:
                 return None, None, "Reference and target are the same guide."
-            ref = _parse_guide(self._ref_group)
-            tgt = _parse_guide(self._tgt_group)
+            ref = self._guide_for(self._ref_group)
+            tgt = self._guide_for(self._tgt_group)
             self._ref_model_node = self._ref_group
             self._tgt_model_node = self._tgt_group
             return ref, tgt, ""
@@ -641,8 +827,12 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         if not new_model:
             return None, None, "Failed to import the template."
 
-        scene_guide = _parse_guide(scene_guide_node)
-        imported_guide = _parse_guide(new_model)
+        # a brand new model just appeared in the scene - make it (and any
+        # other new guide) available in the per-row Source/Target combos
+        self._guide_choices = list_guide_models()
+
+        scene_guide = self._guide_for(scene_guide_node)
+        imported_guide = self._guide_for(new_model)
 
         if self.rb_tpl_is_target.isChecked():
             # imported guide moves onto the scene guide
@@ -693,58 +883,87 @@ class GuideMatchImportUI(QtWidgets.QDialog):
                 )
         return missed_names
 
-    def _fill_table(self, plan):
-        # Sorting must be off while rows are inserted, otherwise each
-        # insertRow() can trigger a re-sort and rows land in the wrong
-        # place / get scrambled mid-fill.
+    _STATUS_COLORS = {
+        ST_MATCH: QtCore.Qt.green,
+        ST_NO_MATCH: QtCore.Qt.yellow,
+        ST_REF_ONLY: QtCore.Qt.gray,
+        ST_NOT_CRAWLED: QtCore.Qt.red,
+    }
+
+    def _paint_row(self, r, row):
+        """(Re)write the Component / Type / Match status / Locators moved
+        cells of row ``r`` from a plan row dict. Does not touch the
+        Source/Target combo cells - those are the input, not the output.
+        """
+        n_locs_item = QtWidgets.QTableWidgetItem()
+        n_locs_item.setData(QtCore.Qt.DisplayRole, len(row["locators"]))
+
+        name_item = QtWidgets.QTableWidgetItem(row["name"])
+        type_item = QtWidgets.QTableWidgetItem(row["comp_type"])
+        status_item = QtWidgets.QTableWidgetItem(row["status"])
+
+        if row["missing"]:
+            status_item.setToolTip(
+                "unmatched locators: " + ", ".join(sorted(set(row["missing"])))
+            )
+        if row["status"] == ST_NOT_CRAWLED:
+            status_item.setToolTip(
+                "Exists in the %s scene hierarchy (comp_type attr found)"
+                " but Guide.setFromHierarchy did not pick it up - it is"
+                " skipped by the matcher entirely. Common causes: it is"
+                " parented under something other than a plain transform"
+                " chain, its component module failed to import (check"
+                " Script Editor), or comp_name/comp_side/comp_index"
+                " differs from what it looks like in the Outliner."
+                % row.get("_side", "?")
+            )
+        status_item.setForeground(
+            self._STATUS_COLORS.get(row["status"], QtCore.Qt.white)
+        )
+
+        self.table.setItem(r, self.COL_NAME, name_item)
+        self.table.setItem(r, self.COL_TYPE, type_item)
+        self.table.setItem(r, self.COL_STATUS, status_item)
+        self.table.setItem(r, self.COL_LOCS, n_locs_item)
+
+    def _fill_table(self, plan_rows):
+        """(Re)build the whole table from a list of plan rows.
+
+        Every row defaults its Source/Target combos to the currently
+        resolved reference/target guide (``self._ref_model_node`` /
+        ``self._tgt_model_node``); override any row afterwards via its own
+        combo. Rebuilds ``self._plan`` as a ``{name: row}`` dict - table
+        rows are looked up by the combo's stamped component name rather
+        than by list/row position, so re-sorting the table by clicking a
+        header never desyncs a row from its data.
+        """
         self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
-        colors = {
-            ST_MATCH: QtCore.Qt.green,
-            ST_NO_MATCH: QtCore.Qt.yellow,
-            ST_REF_ONLY: QtCore.Qt.gray,
-            ST_NOT_CRAWLED: QtCore.Qt.red,
-        }
-        for row in plan:
+        self._plan = {}
+
+        for row in plan_rows:
+            name = row["name"]
+            self._plan[name] = row
             r = self.table.rowCount()
             self.table.insertRow(r)
 
-            n_locs_item = QtWidgets.QTableWidgetItem()
-            n_locs_item.setData(QtCore.Qt.DisplayRole, len(row["locators"]))
+            src_combo = self._make_row_combo(name, self._ref_model_node)
+            tgt_combo = self._make_row_combo(name, self._tgt_model_node)
+            self.table.setCellWidget(r, self.COL_SRC, src_combo)
+            self.table.setCellWidget(r, self.COL_TGT, tgt_combo)
 
-            items = [
-                QtWidgets.QTableWidgetItem(row["name"]),
-                QtWidgets.QTableWidgetItem(row["comp_type"]),
-                QtWidgets.QTableWidgetItem(row["status"]),
-                n_locs_item,
-            ]
-            if row["missing"]:
-                items[2].setToolTip(
-                    "unmatched locators: " + ", ".join(sorted(set(row["missing"])))
-                )
-            if row["status"] == ST_NOT_CRAWLED:
-                items[2].setToolTip(
-                    "Exists in the %s scene hierarchy (comp_type attr found)"
-                    " but Guide.setFromHierarchy did not pick it up - it is"
-                    " skipped by the matcher entirely. Common causes: it is"
-                    " parented under something other than a plain transform"
-                    " chain, its component module failed to import (check"
-                    " Script Editor), or comp_name/comp_side/comp_index"
-                    " differs from what it looks like in the Outliner."
-                    % row.get("_side", "?")
-                )
-            for c, it in enumerate(items):
-                if c == 2:
-                    it.setForeground(colors.get(row["status"], QtCore.Qt.white))
-                self.table.setItem(r, c, it)
+            self._paint_row(r, row)
 
         self.table.setSortingEnabled(True)
+        self._update_summary()
 
-        n_match = sum(1 for x in plan if x["status"] == ST_MATCH)
-        n_nomatch = sum(1 for x in plan if x["status"] == ST_NO_MATCH)
-        n_refonly = sum(1 for x in plan if x["status"] == ST_REF_ONLY)
-        n_missed = sum(1 for x in plan if x["status"] == ST_NOT_CRAWLED)
-        n_locs = sum(len(x["locators"]) for x in plan)
+    def _update_summary(self):
+        rows = list(self._plan.values())
+        n_match = sum(1 for x in rows if x["status"] == ST_MATCH)
+        n_nomatch = sum(1 for x in rows if x["status"] == ST_NO_MATCH)
+        n_refonly = sum(1 for x in rows if x["status"] == ST_REF_ONLY)
+        n_missed = sum(1 for x in rows if x["status"] == ST_NOT_CRAWLED)
+        n_locs = sum(len(x["locators"]) for x in rows)
         summary = (
             "%d matched (%d locators), %d target-only (unchanged), "
             "%d reference-only (ignored)"
@@ -755,27 +974,58 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         self.summary_lbl.setText(summary)
 
     def preview(self):
+        self._guide_choices = list_guide_models()
         ref, tgt, note = self._resolve_guides(do_import=False)
         if ref is None:
             self.summary_lbl.setText(note)
             self.table.setRowCount(0)
-            self._plan = []
+            self._plan = {}
             return
-        self._plan = build_match_plan(ref, tgt)
-        self._append_crawl_diagnostics(self._plan, ref, tgt)
-        self._fill_table(self._plan)
+        plan_rows = build_match_plan(ref, tgt)
+        self._append_crawl_diagnostics(plan_rows, ref, tgt)
+        self._fill_table(plan_rows)
         if note:
             self.summary_lbl.setText(note + "  " + self.summary_lbl.text())
 
     def apply(self):
-        ref, tgt, note = self._resolve_guides(do_import=True)
-        if ref is None:
-            QtWidgets.QMessageBox.warning(self, "Guide Match / Import", note)
-            return
-        plan = build_match_plan(ref, tgt)
-        missed = self._append_crawl_diagnostics(plan, ref, tgt)
-        self._plan = plan
-        self._fill_table(plan)
+        note = ""
+
+        if self._mode() == self.MODE_TEMPLATE:
+            # Template mode can't be meaningfully previewed beforehand (the
+            # source guide does not exist until it is imported), so Apply
+            # does the import + a fresh full match itself, same as before
+            # the per-row Source/Target columns existed. The result still
+            # populates the table with per-row combos afterwards so it can
+            # be reviewed / hand-edited if the user wants to Apply again.
+            ref, tgt, note = self._resolve_guides(do_import=True)
+            if ref is None:
+                QtWidgets.QMessageBox.warning(self, "Guide Match / Import", note)
+                return
+            self._guide_choices = list_guide_models()
+            plan_rows = build_match_plan(ref, tgt)
+            self._append_crawl_diagnostics(plan_rows, ref, tgt)
+            self._fill_table(plan_rows)
+        else:
+            # Scene mode: Apply always uses what is currently sitting in
+            # each row's own Source/Target combo (built during the last
+            # Preview, and editable per row since) - that is the whole
+            # point of the per-row override, so a Preview must exist first.
+            if not self._plan or self.table.rowCount() != len(self._plan):
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Guide Match / Import",
+                    "Run Preview first (and use the Source/Target columns "
+                    "to override individual rows if needed) before Apply.",
+                )
+                return
+            # re-resolve every row from its own (possibly hand-picked)
+            # combo, so Apply reflects any edits made after Preview.
+            # Rebuild by name, not row index - the table may be sorted.
+            for name in list(self._plan.keys()):
+                self._rebuild_row(name)
+
+        rows = list(self._plan.values())
+        missed = [row["name"] for row in rows if row["status"] == ST_NOT_CRAWLED]
 
         if missed:
             proceed = QtWidgets.QMessageBox.warning(
@@ -790,7 +1040,7 @@ class GuideMatchImportUI(QtWidgets.QDialog):
             if proceed != QtWidgets.QMessageBox.Yes:
                 return
 
-        comps, locs = apply_match_plan(plan)
+        comps, locs = apply_match_plan(rows)
         msg = "%s\nMoved %d components (%d locators)." % (note or "Done.", comps, locs)
         pm.displayInfo(msg.replace("\n", " "))
         self.summary_lbl.setText(msg.splitlines()[-1] + "  " + self.summary_lbl.text())
