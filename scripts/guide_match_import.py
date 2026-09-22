@@ -23,13 +23,13 @@ Two ways to provide the *reference* positions:
                     imported guide or the existing scene guide is used as the
                     one that moves.
 
-Those two pickers set the *default* reference/target for every row, but the
-preview table's Source guide / Target guide columns are editable per row:
-each is a dropdown of every guide currently in the scene (refreshed with the
-"Refresh guide list" button, or automatically after a template import), so
-any single component can be re-pointed at a different guide than the rest of
-the table without redoing the whole match. Changing a row's dropdown
-re-resolves just that row immediately.
+Those two pickers set the reference for every row, and it does not vary per
+row. The *target* guide, however, is editable per row: the preview table's
+Target guide column shows the guide currently used for that one component,
+with a "Get Sel" button next to it - select any node that belongs to a
+different guide in the scene and click it to re-point just that row at that
+guide (walks up to its ``ismodel`` node). The row re-resolves (Type / Match
+status / Locators moved) immediately.
 
 Components on the target that have no match on the reference are left exactly
 as they are (in the template case that means "just imported, transform
@@ -159,23 +159,6 @@ def _guide_model_from_selection(node):
     return None
 
 
-def list_guide_models():
-    """Every guide model (``ismodel`` node) currently in the scene.
-
-    Returns:
-        list[pm.PyNode]: guide model transforms, alphabetically by name.
-    """
-    names = cmds.ls("*", type="transform", long=True) or []
-    models = []
-    for n in names:
-        if cmds.attributeQuery("ismodel", node=n, exists=True):
-            try:
-                models.append(pm.PyNode(n))
-            except Exception:
-                pass
-    return sorted(models, key=lambda m: m.name())
-
-
 def _transform_local_names(comp_guide):
     """Local names of the transformable locators of a component.
 
@@ -237,8 +220,8 @@ def match_single_component(ref_guide, tgt_guide, name):
     """Build the match-plan row for one component full name.
 
     Shared by :func:`build_match_plan` (bulk, all target components) and the
-    UI's per-row Source/Target override (re-resolve one row against a guide
-    picked just for that row).
+    UI's per-row Target guide override (re-resolve one row against a guide
+    picked just for that row via "Get Sel").
 
     Args:
         ref_guide (Guide): reference guide (positions to match), or None.
@@ -459,10 +442,9 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         self._tgt_model_node = None
         self._plan = {}  # {component full name: plan row dict}
 
-        # Source/Target column support: every guide model currently in the
-        # scene, and a lazily-populated cache of their parsed Guide objects
-        # (parsing walks the whole hierarchy, so it is not re-done per row).
-        self._guide_choices = []       # list[pm.PyNode] model nodes
+        # Per-row Target guide override: a lazily-populated cache of parsed
+        # Guide objects (parsing walks the whole hierarchy, so it is not
+        # re-done per row), keyed by model node long name.
         self._guide_cache = {}         # model node name (str) -> Guide obj
 
         self._build()
@@ -544,16 +526,15 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         self.preview_btn = QtWidgets.QPushButton("Preview matches")
         main.addWidget(self.preview_btn)
 
-        # Column(s): Component | Source guide | Target guide | Type |
-        #            Match status | Locators moved
-        self.COL_NAME, self.COL_SRC, self.COL_TGT, self.COL_TYPE, \
-            self.COL_STATUS, self.COL_LOCS = range(6)
+        # Column(s): Component | Target guide | Type | Match status |
+        #            Locators moved
+        self.COL_NAME, self.COL_TGT, self.COL_TYPE, \
+            self.COL_STATUS, self.COL_LOCS = range(5)
 
-        self.table = QtWidgets.QTableWidget(0, 6)
+        self.table = QtWidgets.QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
             [
                 "Component",
-                "Source guide",
                 "Target guide",
                 "Type",
                 "Match status",
@@ -571,19 +552,10 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         )
         self.table.verticalHeader().setVisible(False)
         self.table.setColumnWidth(self.COL_NAME, 170)
-        self.table.setColumnWidth(self.COL_SRC, 150)
-        self.table.setColumnWidth(self.COL_TGT, 150)
+        self.table.setColumnWidth(self.COL_TGT, 210)
         self.table.setColumnWidth(self.COL_TYPE, 130)
         self.table.setColumnWidth(self.COL_STATUS, 170)
         main.addWidget(self.table)
-
-        refresh_row = QtWidgets.QHBoxLayout()
-        self.refresh_guides_btn = QtWidgets.QPushButton(
-            "Refresh guide list (Source/Target columns)"
-        )
-        refresh_row.addWidget(self.refresh_guides_btn)
-        refresh_row.addStretch(1)
-        main.addLayout(refresh_row)
 
         self.summary_lbl = QtWidgets.QLabel("")
         main.addWidget(self.summary_lbl)
@@ -603,7 +575,6 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         self.tpl_browse.clicked.connect(self._browse_template)
         self.preview_btn.clicked.connect(self.preview)
         self.apply_btn.clicked.connect(self.apply)
-        self.refresh_guides_btn.clicked.connect(self._refresh_guide_choices)
 
     # -- helpers -----------------------------------------------------
 
@@ -666,7 +637,7 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         if fp:
             self.tpl_path.setText(fp)
 
-    # -- per-row Source/Target guide picking -----------------------------
+    # -- per-row Target guide picking -----------------------------
 
     def _guide_for(self, model_node):
         """Parsed ``Guide`` for a model node, using/populating the cache.
@@ -684,87 +655,83 @@ class GuideMatchImportUI(QtWidgets.QDialog):
             self._guide_cache[key] = guide_obj
         return guide_obj
 
-    def _refresh_guide_choices(self):
-        """Re-scan the scene for guide models and rebuild every row's combo.
+    def _make_row_target_cell(self, component_name, preselect):
+        """Build the per-row Target guide cell: a read-only name field plus
+        a "Get Sel" button that fills it from the current Maya selection.
 
-        Clears the parsed-guide cache too, so edits made to a guide since
-        the last scan (e.g. after an Apply) are picked up.
-        """
-        self._guide_cache = {}
-        self._guide_choices = list_guide_models()
-        for r in range(self.table.rowCount()):
-            for col in (self.COL_SRC, self.COL_TGT):
-                combo = self.table.cellWidget(r, col)
-                if combo is not None:
-                    self._populate_row_combo(combo)
-
-    def _populate_row_combo(self, combo):
-        """Fill a row's guide combobox, keeping its current pick if still valid."""
-        current = combo.currentData()
-        combo.blockSignals(True)
-        combo.clear()
-        for model_node in self._guide_choices:
-            combo.addItem(model_node.name(), model_node)
-        combo.blockSignals(False)
-        if current is not None:
-            for i in range(combo.count()):
-                if combo.itemData(i) == current:
-                    combo.setCurrentIndex(i)
-                    break
-
-    def _make_row_combo(self, component_name, preselect):
-        """Build a Source/Target guide combobox for one table row.
-
-        The component full name is stamped on the widget itself (Qt dynamic
-        property) rather than relied on via row index, because
+        The component full name is stamped on the container widget itself
+        (Qt dynamic property) rather than relied on via row index, because
         ``setSortingEnabled(True)`` lets the user reorder table rows by
         clicking a header - a captured row index would go stale the moment
         that happens. Looking the row up by the widget's own identity keeps
-        this correct no matter how the table is currently sorted.
+        this correct no matter how the table is currently sorted. The
+        currently picked guide model (a ``pm.PyNode``) is stored the same
+        way, as a "guide_model" property, since a QLineEdit only holds text.
 
         Args:
-            component_name (str): full name this combo belongs to.
-            preselect (pm.PyNode or None): guide model to select initially.
+            component_name (str): full name this cell belongs to.
+            preselect (pm.PyNode or None): guide model to show initially.
 
         Returns:
-            QComboBox
+            QWidget: container with the line edit + button.
         """
-        combo = QtWidgets.QComboBox()
-        combo.setEditable(False)
-        combo.setProperty("component_name", component_name)
-        for model_node in self._guide_choices:
-            combo.addItem(model_node.name(), model_node)
-        if preselect is not None:
-            for i in range(combo.count()):
-                if combo.itemData(i) == preselect:
-                    combo.setCurrentIndex(i)
-                    break
-        combo.currentIndexChanged.connect(self._on_row_combo_changed)
-        return combo
+        container = QtWidgets.QWidget()
+        container.setProperty("component_name", component_name)
+        container.setProperty("guide_model", preselect)
+
+        lay = QtWidgets.QHBoxLayout(container)
+        lay.setContentsMargins(2, 0, 2, 0)
+        lay.setSpacing(3)
+
+        name_edit = QtWidgets.QLineEdit(preselect.name() if preselect else "")
+        name_edit.setReadOnly(True)
+        get_btn = QtWidgets.QPushButton("Get Sel")
+        get_btn.setMaximumWidth(60)
+        get_btn.clicked.connect(
+            lambda *_a, c=container, e=name_edit: self._get_selection_into_row(c, e)
+        )
+
+        lay.addWidget(name_edit)
+        lay.addWidget(get_btn)
+
+        container.setProperty("name_edit", name_edit)
+        return container
+
+    def _get_selection_into_row(self, container, name_edit):
+        """Get-Sel button handler: fill one row's Target guide from the
+        current Maya selection and re-resolve that row.
+        """
+        sel = pm.selected(type="transform")
+        if not sel:
+            pm.displayWarning("Select a node that belongs to the target guide.")
+            return
+        model_node = _guide_model_from_selection(sel[0])
+        if model_node is None:
+            pm.displayWarning("Selection is not part of a guide (no 'ismodel' ancestor).")
+            return
+
+        container.setProperty("guide_model", model_node)
+        name_edit.setText(model_node.name())
+
+        name = container.property("component_name")
+        if name:
+            self._rebuild_row(name)
 
     def _find_row_by_name(self, name):
         """Current table row index displaying component ``name``, or -1.
 
-        Looked up by the Source combo's stamped ``component_name`` property
+        Looked up by the Target cell's stamped ``component_name`` property
         rather than list position, so it stays correct after the user sorts
         the table by clicking a header.
         """
         for r in range(self.table.rowCount()):
-            w = self.table.cellWidget(r, self.COL_SRC)
+            w = self.table.cellWidget(r, self.COL_TGT)
             if w is not None and w.property("component_name") == name:
                 return r
         return -1
 
-    def _on_row_combo_changed(self, *_args):
-        combo = self.sender()
-        if combo is None:
-            return
-        name = combo.property("component_name")
-        if name:
-            self._rebuild_row(name)
-
     def _rebuild_row(self, name):
-        """Re-resolve a single component from its own combo picks.
+        """Re-resolve a single component against its own Target guide pick.
 
         Args:
             name (str): component full name - the stable key. The table row
@@ -775,12 +742,14 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         r = self._find_row_by_name(name)
         if r < 0:
             return
-        src_combo = self.table.cellWidget(r, self.COL_SRC)
-        tgt_combo = self.table.cellWidget(r, self.COL_TGT)
-        src_model = src_combo.currentData() if src_combo else None
-        tgt_model = tgt_combo.currentData() if tgt_combo else None
+        tgt_cell = self.table.cellWidget(r, self.COL_TGT)
+        tgt_model = tgt_cell.property("guide_model") if tgt_cell else None
 
-        ref_guide = self._guide_for(src_model) if src_model is not None else None
+        ref_guide = (
+            self._guide_for(self._ref_model_node)
+            if self._ref_model_node is not None
+            else None
+        )
         tgt_guide = self._guide_for(tgt_model) if tgt_model is not None else None
 
         row = match_single_component(ref_guide, tgt_guide, name)
@@ -826,10 +795,6 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         new_model = import_template(path)
         if not new_model:
             return None, None, "Failed to import the template."
-
-        # a brand new model just appeared in the scene - make it (and any
-        # other new guide) available in the per-row Source/Target combos
-        self._guide_choices = list_guide_models()
 
         scene_guide = self._guide_for(scene_guide_node)
         imported_guide = self._guide_for(new_model)
@@ -893,7 +858,7 @@ class GuideMatchImportUI(QtWidgets.QDialog):
     def _paint_row(self, r, row):
         """(Re)write the Component / Type / Match status / Locators moved
         cells of row ``r`` from a plan row dict. Does not touch the
-        Source/Target combo cells - those are the input, not the output.
+        Target guide cell - that is the input, not the output.
         """
         n_locs_item = QtWidgets.QTableWidgetItem()
         n_locs_item.setData(QtCore.Qt.DisplayRole, len(row["locators"]))
@@ -929,13 +894,13 @@ class GuideMatchImportUI(QtWidgets.QDialog):
     def _fill_table(self, plan_rows):
         """(Re)build the whole table from a list of plan rows.
 
-        Every row defaults its Source/Target combos to the currently
-        resolved reference/target guide (``self._ref_model_node`` /
-        ``self._tgt_model_node``); override any row afterwards via its own
-        combo. Rebuilds ``self._plan`` as a ``{name: row}`` dict - table
-        rows are looked up by the combo's stamped component name rather
-        than by list/row position, so re-sorting the table by clicking a
-        header never desyncs a row from its data.
+        Every row defaults its Target guide cell to the currently resolved
+        target guide (``self._tgt_model_node``); override any row
+        afterwards with its own "Get Sel" button. Rebuilds ``self._plan``
+        as a ``{name: row}`` dict - table rows are looked up by the Target
+        cell's stamped component name rather than by list/row position, so
+        re-sorting the table by clicking a header never desyncs a row from
+        its data.
         """
         self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
@@ -947,10 +912,8 @@ class GuideMatchImportUI(QtWidgets.QDialog):
             r = self.table.rowCount()
             self.table.insertRow(r)
 
-            src_combo = self._make_row_combo(name, self._ref_model_node)
-            tgt_combo = self._make_row_combo(name, self._tgt_model_node)
-            self.table.setCellWidget(r, self.COL_SRC, src_combo)
-            self.table.setCellWidget(r, self.COL_TGT, tgt_combo)
+            tgt_cell = self._make_row_target_cell(name, self._tgt_model_node)
+            self.table.setCellWidget(r, self.COL_TGT, tgt_cell)
 
             self._paint_row(r, row)
 
@@ -974,7 +937,6 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         self.summary_lbl.setText(summary)
 
     def preview(self):
-        self._guide_choices = list_guide_models()
         ref, tgt, note = self._resolve_guides(do_import=False)
         if ref is None:
             self.summary_lbl.setText(note)
@@ -994,32 +956,34 @@ class GuideMatchImportUI(QtWidgets.QDialog):
             # Template mode can't be meaningfully previewed beforehand (the
             # source guide does not exist until it is imported), so Apply
             # does the import + a fresh full match itself, same as before
-            # the per-row Source/Target columns existed. The result still
-            # populates the table with per-row combos afterwards so it can
-            # be reviewed / hand-edited if the user wants to Apply again.
+            # the per-row Target guide column existed. The result still
+            # populates the table with per-row "Get Sel" cells afterwards
+            # so it can be reviewed / hand-edited if the user wants to
+            # Apply again.
             ref, tgt, note = self._resolve_guides(do_import=True)
             if ref is None:
                 QtWidgets.QMessageBox.warning(self, "Guide Match / Import", note)
                 return
-            self._guide_choices = list_guide_models()
             plan_rows = build_match_plan(ref, tgt)
             self._append_crawl_diagnostics(plan_rows, ref, tgt)
             self._fill_table(plan_rows)
         else:
             # Scene mode: Apply always uses what is currently sitting in
-            # each row's own Source/Target combo (built during the last
-            # Preview, and editable per row since) - that is the whole
-            # point of the per-row override, so a Preview must exist first.
+            # each row's own Target guide cell (built during the last
+            # Preview, and editable per row since via "Get Sel") - that is
+            # the whole point of the per-row override, so a Preview must
+            # exist first.
             if not self._plan or self.table.rowCount() != len(self._plan):
                 QtWidgets.QMessageBox.warning(
                     self,
                     "Guide Match / Import",
-                    "Run Preview first (and use the Source/Target columns "
-                    "to override individual rows if needed) before Apply.",
+                    "Run Preview first (and use the Target guide column's "
+                    "Get Sel button to override individual rows if needed) "
+                    "before Apply.",
                 )
                 return
             # re-resolve every row from its own (possibly hand-picked)
-            # combo, so Apply reflects any edits made after Preview.
+            # Target guide, so Apply reflects any edits made after Preview.
             # Rebuild by name, not row index - the table may be sorted.
             for name in list(self._plan.keys()):
                 self._rebuild_row(name)
