@@ -30,6 +30,20 @@ Usage (Maya script editor / shelf button)::
     import guide_match_import
     guide_match_import.show()
 
+While iterating on this file (pulling updates, editing it), Python's module
+cache means a plain re-``import`` + ``show()`` keeps running the OLD code
+already loaded in this Maya session - symptoms include fixes appearing to
+"not work" and UI changes (like sortable columns) not showing up. Force a
+reload first::
+
+    import importlib
+    import guide_match_import
+    importlib.reload(guide_match_import)
+    guide_match_import.show()
+
+(Python 2 / older Maya: ``reload(guide_match_import)`` instead of the
+``importlib`` call.) Or simplest of all: just restart Maya.
+
 Author: Fernando Jorge
 """
 
