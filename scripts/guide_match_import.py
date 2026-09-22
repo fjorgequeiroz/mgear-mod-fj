@@ -280,11 +280,18 @@ def _snap_tr(tgt_node, ref_node):
     # match then read back only the unlocked channels
     world_m = ref_node.getMatrix(worldSpace=True)
 
+    # Use the full (long) dag path for every cmds.* call below. ``.name()``
+    # returns Maya's *partial* path (the shortest string that currently
+    # disambiguates the node), which can silently point at the wrong node
+    # once two guides - or a nested vs. top-level copy of the same locator
+    # name - are loaded in the same scene. Full paths are always unambiguous.
+    tgt_path = tgt_node.longName()
+
     # remember current unlocked-channel intent
     locked = {}
     for group in _TR_ATTRS:
         for attr in group:
-            full = "{}.{}".format(tgt_node.name(), attr)
+            full = "{}.{}".format(tgt_path, attr)
             try:
                 settable = cmds.getAttr(full, settable=True)
             except Exception:
@@ -297,14 +304,14 @@ def _snap_tr(tgt_node, ref_node):
 
     # snapshot locked channel values, do the full match, restore locked ones
     saved = {
-        a: cmds.getAttr("{}.{}".format(tgt_node.name(), a))
+        a: cmds.getAttr("{}.{}".format(tgt_path, a))
         for a, is_l in locked.items()
         if is_l
     }
     tgt_node.setMatrix(world_m, worldSpace=True)
     wrote = False
     for a, is_l in locked.items():
-        full = "{}.{}".format(tgt_node.name(), a)
+        full = "{}.{}".format(tgt_path, a)
         if is_l:
             was_locked = cmds.getAttr(full, lock=True)
             if was_locked:
@@ -487,6 +494,8 @@ class GuideMatchImportUI(QtWidgets.QDialog):
             ["Component", "Type", "Match status", "Locators moved"]
         )
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setSectionsClickable(True)
+        self.table.setSortingEnabled(True)
         self.table.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectRows
         )
@@ -671,6 +680,10 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         return missed_names
 
     def _fill_table(self, plan):
+        # Sorting must be off while rows are inserted, otherwise each
+        # insertRow() can trigger a re-sort and rows land in the wrong
+        # place / get scrambled mid-fill.
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
         colors = {
             ST_MATCH: QtCore.Qt.green,
@@ -681,11 +694,15 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         for row in plan:
             r = self.table.rowCount()
             self.table.insertRow(r)
+
+            n_locs_item = QtWidgets.QTableWidgetItem()
+            n_locs_item.setData(QtCore.Qt.DisplayRole, len(row["locators"]))
+
             items = [
                 QtWidgets.QTableWidgetItem(row["name"]),
                 QtWidgets.QTableWidgetItem(row["comp_type"]),
                 QtWidgets.QTableWidgetItem(row["status"]),
-                QtWidgets.QTableWidgetItem(str(len(row["locators"]))),
+                n_locs_item,
             ]
             if row["missing"]:
                 items[2].setToolTip(
@@ -706,6 +723,8 @@ class GuideMatchImportUI(QtWidgets.QDialog):
                 if c == 2:
                     it.setForeground(colors.get(row["status"], QtCore.Qt.white))
                 self.table.setItem(r, c, it)
+
+        self.table.setSortingEnabled(True)
 
         n_match = sum(1 for x in plan if x["status"] == ST_MATCH)
         n_nomatch = sum(1 for x in plan if x["status"] == ST_NO_MATCH)
