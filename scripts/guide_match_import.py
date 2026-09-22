@@ -241,6 +241,7 @@ def match_single_component(ref_guide, tgt_guide, name):
             "status": ST_NOT_CRAWLED,
             "locators": [],
             "missing": [],
+            "tgt_root": None,
         }
 
     if tgt_comp is None:
@@ -251,6 +252,7 @@ def match_single_component(ref_guide, tgt_guide, name):
             "status": ST_REF_ONLY,
             "locators": [],
             "missing": [],
+            "tgt_root": None,
         }
 
     row = {
@@ -259,6 +261,10 @@ def match_single_component(ref_guide, tgt_guide, name):
         "status": ST_NO_MATCH,
         "locators": [],
         "missing": [],
+        # the actual target-guide node this component resolved to, for
+        # display in the UI's Target guide column (not the whole guide
+        # group - the specific component root under it)
+        "tgt_root": _resolve(tgt_comp, tgt_comp.getName("root")),
     }
 
     if ref_comp is not None:
@@ -655,7 +661,24 @@ class GuideMatchImportUI(QtWidgets.QDialog):
             self._guide_cache[key] = guide_obj
         return guide_obj
 
-    def _make_row_target_cell(self, component_name, preselect):
+    @staticmethod
+    def _target_cell_text(row, guide_model):
+        """Text to show in a row's Target guide cell.
+
+        Shows the actual resolved *component* node in the target guide
+        (e.g. ``hand_L0_root``), not just the guide group's own name - a
+        row is about one component, and several rows share the same guide.
+        Falls back to the guide's name (with a note) if that guide does not
+        contain this component at all, or to empty if no guide is picked.
+        """
+        tgt_root = row.get("tgt_root")
+        if tgt_root is not None:
+            return tgt_root.name()
+        if guide_model is not None:
+            return "(not in %s)" % guide_model.name()
+        return ""
+
+    def _make_row_target_cell(self, row, guide_model):
         """Build the per-row Target guide cell: a read-only name field plus
         a "Get Sel" button that fills it from the current Maya selection.
 
@@ -669,21 +692,23 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         way, as a "guide_model" property, since a QLineEdit only holds text.
 
         Args:
-            component_name (str): full name this cell belongs to.
-            preselect (pm.PyNode or None): guide model to show initially.
+            row (dict): this component's current plan row (for the
+                resolved target node to display - see :func:`match_single_component`).
+            guide_model (pm.PyNode or None): guide to show/use initially.
 
         Returns:
             QWidget: container with the line edit + button.
         """
+        component_name = row["name"]
         container = QtWidgets.QWidget()
         container.setProperty("component_name", component_name)
-        container.setProperty("guide_model", preselect)
+        container.setProperty("guide_model", guide_model)
 
         lay = QtWidgets.QHBoxLayout(container)
         lay.setContentsMargins(2, 0, 2, 0)
         lay.setSpacing(3)
 
-        name_edit = QtWidgets.QLineEdit(preselect.name() if preselect else "")
+        name_edit = QtWidgets.QLineEdit(self._target_cell_text(row, guide_model))
         name_edit.setReadOnly(True)
         get_btn = QtWidgets.QPushButton("Get Sel")
         get_btn.setMaximumWidth(60)
@@ -711,7 +736,6 @@ class GuideMatchImportUI(QtWidgets.QDialog):
             return
 
         container.setProperty("guide_model", model_node)
-        name_edit.setText(model_node.name())
 
         name = container.property("component_name")
         if name:
@@ -755,6 +779,11 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         row = match_single_component(ref_guide, tgt_guide, name)
         self._plan[name] = row
         self._paint_row(r, row)
+
+        name_edit = tgt_cell.property("name_edit") if tgt_cell else None
+        if name_edit is not None:
+            name_edit.setText(self._target_cell_text(row, tgt_model))
+
         self._update_summary()
 
     # -- resolve the two guides for the current mode ------------------------
@@ -912,7 +941,7 @@ class GuideMatchImportUI(QtWidgets.QDialog):
             r = self.table.rowCount()
             self.table.insertRow(r)
 
-            tgt_cell = self._make_row_target_cell(name, self._tgt_model_node)
+            tgt_cell = self._make_row_target_cell(row, self._tgt_model_node)
             self.table.setCellWidget(r, self.COL_TGT, tgt_cell)
 
             self._paint_row(r, row)
