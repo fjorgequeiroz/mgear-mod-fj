@@ -54,6 +54,7 @@ from mgear.core import string as mg_string
 ST_MATCH = "match  ->  will move target"
 ST_NO_MATCH = "no match  ->  target unchanged"
 ST_REF_ONLY = "only on reference  ->  ignored"
+ST_NOT_CRAWLED = "NOT FOUND by guide crawl  ->  check hierarchy / comp module"
 
 
 def _parse_guide(root_node):
@@ -68,6 +69,60 @@ def _parse_guide(root_node):
     rig = shifter.Rig()
     rig.guide.setFromHierarchy(root_node, branch=True)
     return rig.guide
+
+
+def scan_component_roots(model_node):
+    """Ground-truth list of every ``comp_type`` node under a guide model.
+
+    Independent of ``Guide.setFromHierarchy`` / ``findComponentRecursive`` -
+    a plain ``cmds.ls`` + attribute check. Used to detect components that
+    mGear's own recursive crawl silently drops (e.g. a component root that
+    isn't reachable by walking ``transform`` children only, or one whose
+    component module failed to import).
+
+    Args:
+        model_node (pm.PyNode): the guide model (``ismodel`` node).
+
+    Returns:
+        set[str]: full names (``comp_name_compSide+compIndex``) found.
+    """
+    found = set()
+    top = model_node.longName() if hasattr(model_node, "longName") else model_node.name()
+    descendants = cmds.listRelatives(
+        top, allDescendents=True, fullPath=True, type="transform"
+    ) or []
+    for node in descendants:
+        if cmds.attributeQuery("comp_type", node=node, exists=True):
+            try:
+                cname = cmds.getAttr(node + ".comp_name")
+                cside = cmds.getAttr(node + ".comp_side")
+                cidx = cmds.getAttr(node + ".comp_index")
+                found.add("{}_{}{}".format(cname, cside, cidx))
+            except Exception:
+                pass
+    return found
+
+
+def diagnose_guide(guide_obj, model_node):
+    """Compare mGear's crawled component list against a raw scene scan.
+
+    Args:
+        guide_obj (Guide): result of :func:`_parse_guide`.
+        model_node (pm.PyNode): the guide model that was parsed.
+
+    Returns:
+        dict: ``valid`` (bool, mirrors ``guide.valid``), ``crawled`` (set),
+            ``scanned`` (set), ``missed`` (scanned - crawled, i.e. components
+            that exist in the scene but the crawl did not pick up).
+    """
+    crawled = set(guide_obj.componentsIndex)
+    scanned = scan_component_roots(model_node)
+    return {
+        "valid": guide_obj.valid,
+        "crawled": crawled,
+        "scanned": scanned,
+        "missed": scanned - crawled,
+    }
 
 
 def _guide_model_from_selection(node):
@@ -344,6 +399,8 @@ class GuideMatchImportUI(QtWidgets.QDialog):
 
         self._ref_group = None   # pm.PyNode - reference guide root/model
         self._tgt_group = None   # pm.PyNode - target guide root/model
+        self._ref_model_node = None  # resolved model used by the last run
+        self._tgt_model_node = None
         self._plan = []
 
         self._build()
@@ -539,6 +596,8 @@ class GuideMatchImportUI(QtWidgets.QDialog):
                 return None, None, "Reference and target are the same guide."
             ref = _parse_guide(self._ref_group)
             tgt = _parse_guide(self._tgt_group)
+            self._ref_model_node = self._ref_group
+            self._tgt_model_node = self._tgt_group
             return ref, tgt, ""
 
         # template mode
@@ -564,12 +623,16 @@ class GuideMatchImportUI(QtWidgets.QDialog):
 
         if self.rb_tpl_is_target.isChecked():
             # imported guide moves onto the scene guide
+            self._ref_model_node = scene_guide_node
+            self._tgt_model_node = new_model
             return scene_guide, imported_guide, (
                 "Imported '%s'. Moving it onto '%s'."
                 % (new_model.name(), scene_guide_node.name())
             )
         else:
             # scene guide moves onto the imported guide
+            self._ref_model_node = new_model
+            self._tgt_model_node = scene_guide_node
             return imported_guide, scene_guide, (
                 "Imported '%s'. Moving '%s' onto it."
                 % (new_model.name(), scene_guide_node.name())
@@ -577,12 +640,43 @@ class GuideMatchImportUI(QtWidgets.QDialog):
 
     # -- actions -----------------------------------------------------
 
+    def _append_crawl_diagnostics(self, plan, ref, tgt):
+        """Append rows for components the crawl missed on either side.
+
+        Compares ``ref``/``tgt`` ``componentsIndex`` against a raw scene
+        scan (``scan_component_roots``) using the model nodes recorded by
+        the last ``_resolve_guides`` call. Mutates ``plan`` in place and
+        returns the combined set of missed full names, for the summary.
+        """
+        missed_names = set()
+        for guide_obj, model_node, side in (
+            (ref, self._ref_model_node, "reference"),
+            (tgt, self._tgt_model_node, "target"),
+        ):
+            if model_node is None:
+                continue
+            diag = diagnose_guide(guide_obj, model_node)
+            for name in sorted(diag["missed"]):
+                missed_names.add(name)
+                plan.append(
+                    {
+                        "name": name,
+                        "comp_type": "?",
+                        "status": ST_NOT_CRAWLED,
+                        "locators": [],
+                        "missing": [],
+                        "_side": side,
+                    }
+                )
+        return missed_names
+
     def _fill_table(self, plan):
         self.table.setRowCount(0)
         colors = {
             ST_MATCH: QtCore.Qt.green,
             ST_NO_MATCH: QtCore.Qt.yellow,
             ST_REF_ONLY: QtCore.Qt.gray,
+            ST_NOT_CRAWLED: QtCore.Qt.red,
         }
         for row in plan:
             r = self.table.rowCount()
@@ -597,6 +691,17 @@ class GuideMatchImportUI(QtWidgets.QDialog):
                 items[2].setToolTip(
                     "unmatched locators: " + ", ".join(sorted(set(row["missing"])))
                 )
+            if row["status"] == ST_NOT_CRAWLED:
+                items[2].setToolTip(
+                    "Exists in the %s scene hierarchy (comp_type attr found)"
+                    " but Guide.setFromHierarchy did not pick it up - it is"
+                    " skipped by the matcher entirely. Common causes: it is"
+                    " parented under something other than a plain transform"
+                    " chain, its component module failed to import (check"
+                    " Script Editor), or comp_name/comp_side/comp_index"
+                    " differs from what it looks like in the Outliner."
+                    % row.get("_side", "?")
+                )
             for c, it in enumerate(items):
                 if c == 2:
                     it.setForeground(colors.get(row["status"], QtCore.Qt.white))
@@ -605,12 +710,16 @@ class GuideMatchImportUI(QtWidgets.QDialog):
         n_match = sum(1 for x in plan if x["status"] == ST_MATCH)
         n_nomatch = sum(1 for x in plan if x["status"] == ST_NO_MATCH)
         n_refonly = sum(1 for x in plan if x["status"] == ST_REF_ONLY)
+        n_missed = sum(1 for x in plan if x["status"] == ST_NOT_CRAWLED)
         n_locs = sum(len(x["locators"]) for x in plan)
-        self.summary_lbl.setText(
+        summary = (
             "%d matched (%d locators), %d target-only (unchanged), "
             "%d reference-only (ignored)"
             % (n_match, n_locs, n_nomatch, n_refonly)
         )
+        if n_missed:
+            summary += "  |  %d NOT FOUND by crawl (see red rows)" % n_missed
+        self.summary_lbl.setText(summary)
 
     def preview(self):
         ref, tgt, note = self._resolve_guides(do_import=False)
@@ -620,6 +729,7 @@ class GuideMatchImportUI(QtWidgets.QDialog):
             self._plan = []
             return
         self._plan = build_match_plan(ref, tgt)
+        self._append_crawl_diagnostics(self._plan, ref, tgt)
         self._fill_table(self._plan)
         if note:
             self.summary_lbl.setText(note + "  " + self.summary_lbl.text())
@@ -630,8 +740,22 @@ class GuideMatchImportUI(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "Guide Match / Import", note)
             return
         plan = build_match_plan(ref, tgt)
+        missed = self._append_crawl_diagnostics(plan, ref, tgt)
         self._plan = plan
         self._fill_table(plan)
+
+        if missed:
+            proceed = QtWidgets.QMessageBox.warning(
+                self,
+                "Guide Match / Import",
+                "%d component(s) exist in the scene but were NOT picked up "
+                "by the guide crawl, so they will be skipped:\n\n%s\n\n"
+                "Proceed with the components that were found?"
+                % (len(missed), "\n".join(sorted(missed))),
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel,
+            )
+            if proceed != QtWidgets.QMessageBox.Yes:
+                return
 
         comps, locs = apply_match_plan(plan)
         msg = "%s\nMoved %d components (%d locators)." % (note or "Done.", comps, locs)
