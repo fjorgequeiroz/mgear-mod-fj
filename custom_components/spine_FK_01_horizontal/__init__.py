@@ -29,7 +29,7 @@ class Component(component.Main):
                 self.guide.apos[0],
                 self.guide.apos[1],
                 self.guide.blades["blade"].z * -1,
-                "zy",
+                "zx",
                 self.negate
                 )
 
@@ -242,7 +242,7 @@ class Component(component.Main):
                 self.guide.apos[0],
                 self.guide.apos[1],
                 self.guide.blades["blade"].z * -1,
-                "zy",
+                "zx",
                 self.negate
                 )
 
@@ -278,7 +278,7 @@ class Component(component.Main):
                 self.guide.apos[0],
                 self.guide.apos[1],
                 self.guide.blades["blade"].z * -1,
-                "zy",
+                "zx",
                 self.negate
                 )
 
