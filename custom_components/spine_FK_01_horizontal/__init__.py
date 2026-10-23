@@ -22,12 +22,13 @@ class Component(component.Main):
     def addObjects(self):
         """Add all the objects needed to create the component."""
 
-        # NOTE: Controls are oriented so that Y = up and Z = forward,
-        # just like global space controls.
+        # NOTE: Controls are oriented so that Z = forward (aim root->eff),
+        # with the guide's blade controlling the up/roll, just like
+        # spine_FK_01.
         t = transform.getTransformLookingAt(
                 self.guide.apos[0],
-                self.guide.apos[0] + datatypes.Vector(0, 0, 1),
-                self.guide.apos[0] + datatypes.Vector(0, 1, 0),
+                self.guide.apos[1],
+                self.guide.blades["blade"].z * -1,
                 "zy",
                 self.negate
                 )
@@ -239,8 +240,8 @@ class Component(component.Main):
 
         t = transform.getTransformLookingAt(
                 self.guide.apos[0],
-                self.guide.apos[0] + datatypes.Vector(0, 0, 1),
-                self.guide.apos[0] + datatypes.Vector(0, 1, 0),
+                self.guide.apos[1],
+                self.guide.blades["blade"].z * -1,
                 "zy",
                 self.negate
                 )
@@ -275,8 +276,8 @@ class Component(component.Main):
             # slerp solver behavior)
             t = transform.getTransformLookingAt(
                 self.guide.apos[0],
-                self.guide.apos[0] + datatypes.Vector(0, 0, 1),
-                self.guide.apos[0] + datatypes.Vector(0, 1, 0),
+                self.guide.apos[1],
+                self.guide.blades["blade"].z * -1,
                 "zy",
                 self.negate
                 )
